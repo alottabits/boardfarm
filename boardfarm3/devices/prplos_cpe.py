@@ -71,24 +71,24 @@ class PrplOSx86HW(CPEHW):
         if mac := self._config.get("mac"):
             return mac
 
-        # If console is available, read from /etc/environment
-        # The docker-entrypoint.sh script ensures HWMACADDRESS is populated
+        # If console is available, read from /var/etc/environment
+        # PrplOS generates environment variables here, not in /etc/environment
         if self._console:
-            output = self._console.execute_command("grep HWMACADDRESS /etc/environment")
+            output = self._console.execute_command("grep HWMACADDRESS /var/etc/environment")
             return re.findall('"([^"]*)"', output).pop()
 
-        msg = "Failed to get mac address from config or /etc/environment"
+        msg = "Failed to get mac address from config or /var/etc/environment"
         raise ValueError(msg)
 
     @property
     def serial_number(self) -> str:
         """Get CPE Serial number.
 
-        :return: MAC address
+        :return: Serial number
         :rtype: str
         """
         if self._console:
-            output = self._console.execute_command("grep SERIALNUMBER /etc/environment")
+            output = self._console.execute_command("grep SERIALNUMBER /var/etc/environment")
             return re.findall('"([^"]*)"', output).pop()
 
         return self._config.get("serial")
@@ -298,11 +298,11 @@ class PrplOSSW(CPESwLibraries):  # pylint: disable=R0904
         console = self._get_console("default_shell")
         serial = re.findall(
             '"([^"]*)"',
-            console.execute_command("grep SERIALNUMBER /etc/environment"),
+            console.execute_command("grep SERIALNUMBER /var/etc/environment"),
         ).pop()
         oui = re.findall(
             '"([^"]*)"',
-            console.execute_command("grep MANUFACTUREROUI /etc/environment"),
+            console.execute_command("grep MANUFACTUREROUI /var/etc/environment"),
         ).pop()
         return f"{oui}-{serial}"
 
