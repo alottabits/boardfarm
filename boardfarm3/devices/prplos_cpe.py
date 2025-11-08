@@ -67,11 +67,37 @@ class PrplOSx86HW(CPEHW):
         :return: MAC address
         :rtype: str
         """
-        if self._console:
-            output = self._console.execute_command("grep HWMACADDRESS /etc/environment")
-            return re.findall('"([^"]*)"', output).pop()
+        # First try to get from config
+        if mac := self._config.get("mac"):
+            return mac
 
-        return self._config.get("mac")
+        # If console is available, try to read from /etc/environment
+        if self._console:
+            try:
+                output = self._console.execute_command("grep HWMACADDRESS /etc/environment")
+                matches = re.findall('"([^"]*)"', output)
+                if matches and matches[0]:  # Check if we found a non-empty MAC
+                    return matches[0]
+            except (IndexError, AttributeError):
+                # HWMACADDRESS not found or empty, fallback to reading from interface
+                pass
+
+            # Fallback: read MAC address directly from WAN interface
+            try:
+                mac = self._console.execute_command(
+                    f"cat /sys/class/net/{self.wan_iface}/address"
+                ).strip()
+                if mac:
+                    return mac
+            except Exception as e:
+                _LOGGER.warning(
+                    "Failed to read MAC address from interface %s: %s",
+                    self.wan_iface,
+                    e,
+                )
+
+        msg = "Failed to get mac address from config, /etc/environment, or interface"
+        raise ValueError(msg)
 
     @property
     def serial_number(self) -> str:
