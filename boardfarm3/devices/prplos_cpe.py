@@ -71,32 +71,13 @@ class PrplOSx86HW(CPEHW):
         if mac := self._config.get("mac"):
             return mac
 
-        # If console is available, try to read from /etc/environment
+        # If console is available, read from /etc/environment
+        # The docker-entrypoint.sh script ensures HWMACADDRESS is populated
         if self._console:
-            try:
-                output = self._console.execute_command("grep HWMACADDRESS /etc/environment")
-                matches = re.findall('"([^"]*)"', output)
-                if matches and matches[0]:  # Check if we found a non-empty MAC
-                    return matches[0]
-            except (IndexError, AttributeError):
-                # HWMACADDRESS not found or empty, fallback to reading from interface
-                pass
+            output = self._console.execute_command("grep HWMACADDRESS /etc/environment")
+            return re.findall('"([^"]*)"', output).pop()
 
-            # Fallback: read MAC address directly from WAN interface
-            try:
-                mac = self._console.execute_command(
-                    f"cat /sys/class/net/{self.wan_iface}/address"
-                ).strip()
-                if mac:
-                    return mac
-            except Exception as e:
-                _LOGGER.warning(
-                    "Failed to read MAC address from interface %s: %s",
-                    self.wan_iface,
-                    e,
-                )
-
-        msg = "Failed to get mac address from config, /etc/environment, or interface"
+        msg = "Failed to get mac address from config or /etc/environment"
         raise ValueError(msg)
 
     @property
