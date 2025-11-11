@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 import re
 import tempfile
-from contextlib import contextmanager, suppress
 from functools import cached_property
 from ipaddress import IPv4Address, IPv4Interface, IPv6Address, IPv6Interface
 from pathlib import Path
@@ -38,7 +37,6 @@ from boardfarm3.lib.shell_prompt import DEFAULT_BASH_SHELL_PROMPT_PATTERN
 
 if TYPE_CHECKING:
     from argparse import Namespace
-    from collections.abc import Generator
 
     from boardfarm3.lib.boardfarm_pexpect import BoardfarmPexpect
     from boardfarm3.lib.multicast import MulticastGroupRecord
@@ -659,46 +657,6 @@ class LinuxDevice(BoardfarmDevice):
             self._console.sendcontrol("c")
             self._console.expect(self._shell_prompt)
             return None
-
-    @contextmanager
-    def tcpdump_capture(
-        self,
-        fname: str,
-        interface: str = "any",
-        additional_args: str | None = None,
-    ) -> Generator[str]:
-        """Capture packets from specified interface.
-
-        Packet capture using tcpdump utility at a specified interface.
-
-        :param fname: name of the file where packet captures will be stored
-        :param interface: name of the interface, defaults to "all"
-        :param additional_args: arguments to tcpdump command, defaults to None
-        :yield: process id of tcpdump process
-        """
-        process_id: str = ""
-        command_str = f"tcpdump -U -i {interface} -n -w {fname} "
-        if additional_args:
-            command_str += additional_args
-
-        try:
-            self._console.sudo_sendline(f"{command_str} &")
-            self._console.expect_exact(f"tcpdump: listening on {interface}")
-            process_id = re.search(r"(\[\d{1,10}\]\s(\d+))", self._console.before)[2]
-
-            yield process_id
-
-        finally:
-            # This should always be executed, might kill other tcpdumps[need to agree]
-            if process_id:
-                self._console.sudo_sendline(f"kill {process_id}")
-                self._console.expect(self._shell_prompt)
-                for _ in range(3):
-                    with suppress(pexpect.TIMEOUT):
-                        self._console.sudo_sendline("sync")
-                        self._console.expect(self._shell_prompt)
-                        if "Done" in self._console.before:
-                            break
 
     def tcpdump_read_pcap(
         self,
@@ -1357,9 +1315,22 @@ class LinuxDevice(BoardfarmDevice):
         self._console.execute_command(
             f"ifconfig {interface} {ip_address} netmask {netmask} up"
         )
-        ip = self.ipv4_addr
+        ip = self.get_interface_ipv4addr(interface)
         if ip != ip_address:
             err_msg = f"Running IP: {ip=} is different than expected: {ip_address=}"
+            raise CodeError(err_msg)
+
+    def remove_static_ip(self, interface: str) -> None:
+        """Remove the static IP assigned to the interface.
+
+        :param interface: name of the interface
+        :type interface: str
+        :raises CodeError: If IP removal did not succeed
+        """
+        self._console.execute_command(f"ip addr flush dev {interface}")
+        ip = self.get_interface_ipv4addr(interface)
+        if ip:
+            err_msg = f"IP removal failed: running IP is still {ip}"
             raise CodeError(err_msg)
 
     def del_default_route(self, interface: str | None = None) -> None:
@@ -1491,12 +1462,12 @@ class LinuxDevice(BoardfarmDevice):
         :return: command output
         :rtype: str
         """
+        cmd = f"hping3 -c {packet_count} -{protocol} {target} "
         if pkt_interval:
-            pkt_interval = f"-i {pkt_interval}"
-        return self._console.execute_command(
-            f"sudo hping3 {pkt_interval} -c {packet_count} -{protocol} {target} "
-            f"{extra_args}"
-        )
+            cmd = f"{cmd} -i {pkt_interval}"
+        if extra_args:
+            cmd = f"{cmd} {extra_args}"
+        return self._console.execute_command(cmd)
 
     @property
     def nw_utility(self) -> NetworkUtility:
