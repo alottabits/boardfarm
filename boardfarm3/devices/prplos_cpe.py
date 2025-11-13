@@ -74,7 +74,9 @@ class PrplOSx86HW(CPEHW):
         # If console is available, read from /var/etc/environment
         # PrplOS generates environment variables here, not in /etc/environment
         if self._console:
-            output = self._console.execute_command("grep HWMACADDRESS /var/etc/environment")
+            output = self._console.execute_command(
+                "grep HWMACADDRESS /var/etc/environment"
+            )
             return re.findall('"([^"]*)"', output).pop()
 
         msg = "Failed to get mac address from config or /var/etc/environment"
@@ -88,7 +90,9 @@ class PrplOSx86HW(CPEHW):
         :rtype: str
         """
         if self._console:
-            output = self._console.execute_command("grep SERIALNUMBER /var/etc/environment")
+            output = self._console.execute_command(
+                "grep SERIALNUMBER /var/etc/environment"
+            )
             return re.findall('"([^"]*)"', output).pop()
 
         return self._config.get("serial")
