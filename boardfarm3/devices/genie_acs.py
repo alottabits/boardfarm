@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from argparse import Namespace
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urljoin
 
@@ -291,6 +292,62 @@ class GenieACS(LinuxDevice, ACS):
                 data.append([spv_params, param_value[spv_params]])
         return {"name": "setParameterValues", "parameterValues": data}
 
+    def _build_input_structs_download(
+        self,
+        url: str,
+        filetype: str,
+        targetfilename: str,
+        filesize: int,
+        username: str,
+        password: str,
+        commandkey: str,
+        delayseconds: int,
+        successurl: str,
+        failureurl: str,
+    ) -> dict[str, Any]:
+        """Build Download task structure for GenieACS API.
+
+        :param url: URL to download file
+        :param filetype: File type string (e.g., "1 Firmware Upgrade Image")
+        :param targetfilename: Target file name
+        :param filesize: File size in bytes
+        :param username: Username for authentication
+        :param password: Password for authentication
+        :param commandkey: Command key string
+        :param delayseconds: Delay in seconds
+        :param successurl: Success URL
+        :param failureurl: Failure URL
+        :return: Download task structure
+        """
+        # Build task dict with name and flattened parameters
+        # GenieACS expects parameters at the top level, not nested
+        # GenieACS uses camelCase for parameter names (not PascalCase)
+        # GenieACS requires 'fileName' property (not 'targetFileName')
+        # If targetfilename is not provided, extract filename from URL
+        if not targetfilename and url:
+            # Extract filename from URL
+            # (e.g., "http://server/file.img" -> "file.img")
+            targetfilename = url.split("/")[-1].split("?")[0]
+
+        # Build task dict - include all parameters to align with AxirosACS API
+        # GenieACS uses camelCase for parameter names (not PascalCase)
+        # GenieACS requires 'fileName' property (not 'targetFileName')
+        task: dict[str, Any] = {
+            "name": "download",
+            "fileType": filetype,
+            "url": url,
+            "fileName": targetfilename,  # GenieACS requires fileName
+            "fileSize": filesize,
+            "username": username,
+            "password": password,
+            "commandKey": commandkey,
+            "delaySeconds": delayseconds,
+            "successURL": successurl,
+            "failureURL": failureurl,
+        }
+
+        return task
+
     def _request_post(
         self,
         endpoint: str,
@@ -428,7 +485,7 @@ class GenieACS(LinuxDevice, ACS):
 
     def ScheduleInform(
         self,
-        CommandKey: str = "Test",
+        CommandKey: str = "Test",  # noqa: ARG002
         DelaySeconds: int = 20,
         cpe_id: str | None = None,
     ) -> list[dict]:
@@ -436,6 +493,8 @@ class GenieACS(LinuxDevice, ACS):
 
         :param CommandKey: string to return in the CommandKey element of the
             InformStruct when the CPE calls the Inform method, defaults to "Test"
+            Note: CommandKey is kept for API consistency with AxirosACS but
+            is not used in GenieACS implementation
         :type CommandKey: str
         :param DelaySeconds: number of seconds from the time this method is
             called to the time the CPE is requested to initiate a one-time Inform
@@ -443,9 +502,59 @@ class GenieACS(LinuxDevice, ACS):
         :type DelaySeconds: int
         :param cpe_id: cpe identifier, defaults to None
         :type cpe_id: str | None, optional
-        :raises NotImplementedError: missing implementation
+        :return: ScheduleInform response
+        :rtype: list[dict]
         """
-        raise NotImplementedError
+        cpe_id = cpe_id if cpe_id else self._cpeid
+
+        # GenieACS doesn't support scheduleInform as a task name
+        # For immediate inform (DelaySeconds=0), use connection_request
+        # For delayed inform, use SPV to set PeriodicInformTime
+        if DelaySeconds == 0:
+            # Trigger immediate connection via connection_request
+            # Create a dummy task with connection_request to trigger CPE
+            # This causes GenieACS to send ConnectionRequest to CPE
+            dummy_task = {
+                "name": "getParameterValues",
+                "parameterNames": ["Device.DeviceInfo.SoftwareVersion"],
+            }
+            try:
+                self._request_post(
+                    endpoint="/devices/" + quote(cpe_id) + "/tasks",
+                    data=dummy_task,
+                    conn_request=True,
+                    timeout=30,
+                )
+                success = True
+            except (ConnectionError, ValueError):
+                success = False
+        else:
+            # For delayed inform, set PeriodicInformTime
+            target_time = datetime.now(timezone.utc) + timedelta(
+                seconds=DelaySeconds
+            )
+            # Format as ISO 8601 timestamp (TR-069 format)
+            periodic_inform_time = target_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+            success = bool(
+                self.SPV(
+                    param_value={
+                        "Device.ManagementServer.PeriodicInformTime": (
+                            periodic_inform_time
+                        )
+                    },
+                    cpe_id=cpe_id,
+                )
+            )
+
+        # Return response in format consistent with AxirosACS
+        # AxirosACS returns list[dict] with details
+        return [
+            {
+                "key": "ScheduleInform",
+                "value": "1" if success else "0",
+                "type": "boolean",
+            }
+        ]
 
     def GetRPCMethods(self, cpe_id: str | None = None) -> list[dict]:
         """Execute GetRPCMethods RPC.
@@ -474,7 +583,7 @@ class GenieACS(LinuxDevice, ACS):
 
         :param url: URL to download file
         :type url: str
-        :param filetype: the string paramenter from following 6 values only
+        :param filetype: the string parameter from following 6 values only
 
             .. code-block:: python
 
@@ -496,7 +605,7 @@ class GenieACS(LinuxDevice, ACS):
         :type username: str
         :param password: Password to authenticate with file Server. Default=""
         :type password: str
-        :param commandkey: the string paramenter passed in Download API
+        :param commandkey: the string parameter passed in Download API
         :type commandkey: str
         :param delayseconds: delay of seconds in integer
         :type delayseconds: int
@@ -506,9 +615,42 @@ class GenieACS(LinuxDevice, ACS):
         :type failureurl: str
         :param cpe_id: cpe identifier, defaults to None
         :type cpe_id: str | None
-        :raises NotImplementedError: missing implementation
+        :return: Download response
+        :rtype: list[dict]
         """
-        raise NotImplementedError
+        cpe_id = cpe_id if cpe_id else self._cpeid
+        download_data = self._build_input_structs_download(
+            url=url,
+            filetype=filetype,
+            targetfilename=targetfilename,
+            filesize=filesize,
+            username=username,
+            password=password,
+            commandkey=commandkey,
+            delayseconds=delayseconds,
+            successurl=successurl,
+            failureurl=failureurl,
+        )
+
+        # Post the download task to GenieACS
+        # Use longer timeout for download operations
+        # (firmware downloads can take time)
+        timeout = 300  # 5 minutes default timeout
+        response_data = self._request_post(
+            endpoint="/devices/" + quote(cpe_id) + "/tasks",
+            data=download_data,
+            conn_request=True,
+            timeout=timeout,
+        )
+
+        # GenieACS returns task creation response
+        # Convert to list[dict] format consistent with other RPC methods
+        if isinstance(response_data, dict):
+            return [response_data]
+        if isinstance(response_data, list):
+            return response_data
+        # Fallback: return empty list if response format is unexpected
+        return []
 
     def provision_cpe_via_tr069(
         self,
