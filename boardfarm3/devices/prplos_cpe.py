@@ -8,8 +8,10 @@ from functools import cached_property
 from ipaddress import AddressValueError, IPv4Address
 from time import sleep
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 import jc
+import pexpect
 
 from boardfarm3 import hookimpl
 from boardfarm3.devices.base_devices.boardfarm_device import BoardfarmDevice
@@ -71,15 +73,39 @@ class PrplOSx86HW(CPEHW):
         if mac := self._config.get("mac"):
             return mac
 
-        # If console is available, read from /var/etc/environment
-        # PrplOS generates environment variables here, not in /etc/environment
+        # If console is available, try reading from /var/etc/environment first
+        # (populated by set-mac-address.sh which reads from eth1)
+        # If that's not available yet, fall back to reading directly from eth1
+        # (which Raikou sets from config.json)
         if self._console:
-            output = self._console.execute_command(
-                "grep HWMACADDRESS /var/etc/environment"
-            )
-            return re.findall('"([^"]*)"', output).pop()
+            # First try: read from /var/etc/environment (set by set-mac-address.sh)
+            try:
+                output = self._console.execute_command(
+                    "grep HWMACADDRESS /var/etc/environment 2>/dev/null || echo ''"
+                )
+                if output and "HWMACADDRESS" in output:
+                    mac = re.findall('"([^"]*)"', output).pop()
+                    if mac and len(mac) == 17:  # Valid MAC format
+                        return mac
+            except (ValueError, AttributeError, IndexError):
+                pass
 
-        msg = "Failed to get mac address from config or /var/etc/environment"
+            # Fallback: read directly from eth1 interface (set by Raikou)
+            # This handles cases where set-mac-address.sh hasn't run yet
+            try:
+                output = self._console.execute_command(
+                    "cat /sys/class/net/eth1/address 2>/dev/null || echo ''"
+                )
+                mac = output.strip()
+                if mac and len(mac) == 17:  # Valid MAC format: XX:XX:XX:XX:XX:XX
+                    return mac.lower()
+            except (ValueError, AttributeError, OSError):
+                pass
+
+        msg = (
+            "Failed to get mac address from config, eth1 interface, "
+            "or /var/etc/environment"
+        )
         raise ValueError(msg)
 
     @property
@@ -381,16 +407,91 @@ class PrplOSSW(CPESwLibraries):  # pylint: disable=R0904
         """
         raise NotSupportedError
 
-    def wait_device_online(self) -> None:
-        """Wait for WAN interface to come online.
+    def _is_tr181_ready(self) -> bool:
+        """Check if TR-181 data model is accessible via ubus-cli.
 
-        :raises DeviceBootFailure: if board is not online
+        This is important because MAC address configuration speeds up DHCP,
+        which can cause wait_device_online() to pass before TR-181 is ready.
+
+        We check by attempting to write a TR-181 parameter. If the write
+        succeeds (no ERROR), TR-181 is ready.
+
+        :return: True if TR-181 is ready, False otherwise
+        :rtype: bool
         """
+        try:
+            console = self._get_console("default_shell")
+            # Try to write a TR-181 parameter to verify the data model
+            # is accessible. We use a write operation because read
+            # operations require different syntax. We write to a parameter
+            # that should always exist and be writable.
+            console.sendline("ubus-cli")
+            console.expect(" > ", timeout=5)
+            # Try to set EnableCWMP to 0 (safe operation)
+            # This tests TR-181 accessibility without side effects
+            console.sendline("Device.ManagementServer.EnableCWMP=0")
+            # Wait for response - could be prompt, ERROR, or timeout
+            index = console.expect(
+                [" > ", "ERROR", pexpect.TIMEOUT], timeout=5
+            )
+            # Get output before the match to check for errors
+            output_before = console.before
+
+            console.sendline("exit")
+            console.expect(r"/[a-zA-Z]* #", timeout=5)
+
+            # TR-181 is ready if we got the prompt back (index 0)
+            # AND no ERROR message in the output
+            # If index is 1, we matched "ERROR" pattern
+            # Also check output_before for error messages
+            has_error = (
+                index == 1
+                or "ERROR" in output_before
+                or "failed" in output_before.lower()
+            )
+
+            if index == 0 and not has_error:
+                return True
+            return False
+        except (pexpect.TIMEOUT, pexpect.EOF):
+            return False
+        except (AttributeError, ValueError, OSError):
+            # Catch specific exceptions that might occur during
+            # console operations
+            return False
+
+    def wait_device_online(self) -> None:
+        """Wait for WAN interface to come online and TR-181 to be ready.
+
+        :raises DeviceBootFailure: if board is not online or TR-181 not ready
+        """
+        # First wait for network to come online
+        network_online = False
         for _ in range(20):
             if self.is_online():
-                return
+                network_online = True
+                break
             sleep(20)
-        msg = "Board not online"
+        
+        if not network_online:
+            msg = "Board not online"
+            raise DeviceBootFailure(msg)
+        
+        # Once network is online, wait for TR-181 to be ready
+        # TR-181 may take some time to initialize after network comes up
+        _LOGGER.debug("Network is online, waiting for TR-181 to be ready")
+        for attempt in range(30):  # Wait up to 30 * 5 = 150 seconds
+            if self._is_tr181_ready():
+                _LOGGER.debug("TR-181 is ready")
+                return
+            if attempt < 29:
+                _LOGGER.debug(
+                    "TR-181 not ready yet (attempt %d/30), waiting...",
+                    attempt + 1,
+                )
+                sleep(5)
+        
+        msg = "TR-181 not ready after network came online"
         raise DeviceBootFailure(msg)
 
     def configure_management_server(
@@ -406,12 +507,47 @@ class PrplOSSW(CPESwLibraries):  # pylint: disable=R0904
         :type username: str | None, optional
         :param password: CWMP client password, defaults to ""
         :type password: str | None, optional
+        :raises DeviceBootFailure: if TR-181 is not accessible after retries
         """
+        # Ensure TR-181 is ready before attempting configuration
+        # This provides an additional safety check in case
+        # wait_device_online() passed but TR-181 became unavailable
+        _LOGGER.debug("Checking TR-181 readiness before configuring ACS")
+        max_attempts = 10
+        for attempt in range(max_attempts):
+            if self._is_tr181_ready():
+                _LOGGER.debug(
+                    "TR-181 is ready, proceeding with ACS configuration"
+                )
+                break
+            if attempt < max_attempts - 1:
+                _LOGGER.debug(
+                    "TR-181 not ready yet (attempt %d/%d), waiting...",
+                    attempt + 1,
+                    max_attempts,
+                )
+                sleep(2)
+        else:
+            msg = "TR-181 data model not accessible after 10 attempts"
+            _LOGGER.error(msg)
+            raise DeviceBootFailure(msg)
+
         console = self._get_console("default_shell")
         console.sendline("ubus-cli")
         console.expect(" > ")
         console.sendline(f'Device.ManagementServer.URL="{url}"')
         console.expect(" > ")
+        # Verify the write succeeded by checking for ERROR in the output
+        if "ERROR" in console.before:
+            msg = (
+                f"Failed to set Device.ManagementServer.URL: "
+                f"{console.before}"
+            )
+            _LOGGER.error(msg)
+            console.sendline("exit")
+            console.expect(r"/[a-zA-Z]* #", timeout=5)
+            raise DeviceBootFailure(msg)
+
         console.sendline(f'Device.ManagementServer.Username="{username}"')
         console.expect(" > ")
         if password:  # setting password is not mandatory!
@@ -423,6 +559,125 @@ class PrplOSSW(CPESwLibraries):  # pylint: disable=R0904
         console.expect(" > ")
         console.sendline("exit")
         console.expect(r"/[a-zA-Z]* #")
+        
+        # Ensure WAN interface is up and recognized by netifd before restarting cwmp_plugin
+        # This is needed because eth1 is added dynamically by Raikou after netifd starts
+        _LOGGER.debug("Ensuring WAN interface is up before restarting cwmp_plugin")
+        console.sendline("ubus call network.interface.wan up >/dev/null 2>&1 || true")
+        console.expect(r"/[a-zA-Z]* #", timeout=5)
+        
+        # Restart cwmp_plugin after EnableCWMP=1 to ensure it picks up:
+        # 1. The enabled CWMP state
+        # 2. The eth1 WAN interface configuration (from configure-wan-interface script)
+        _LOGGER.debug("Restarting cwmp_plugin to apply EnableCWMP=1 and recognize eth1 as WAN")
+        sleep(1)  # Brief delay to ensure EnableCWMP=1 is committed
+        console.sendline("/etc/init.d/cwmp_plugin restart")
+        console.expect(r"/[a-zA-Z]* #", timeout=10)
+
+    def wait_for_acs_connection(
+        self, acs: ACS, timeout: int = 120
+    ) -> None:
+        """Wait for CPE to connect to ACS after EnableCWMP is enabled.
+
+        After enabling CWMP, the CPE needs to send an Inform message to
+        register with the ACS. This method waits for the CPE to be
+        available in ACS by attempting to query a simple parameter.
+
+        :param acs: ACS device instance
+        :type acs: ACS
+        :param timeout: Maximum time to wait in seconds, defaults to 120
+        :type timeout: int, optional
+        :raises DeviceBootFailure: if CPE does not connect within timeout
+        """
+        _LOGGER.info(
+            "Waiting for CPE %s to connect to ACS (timeout: %ds)",
+            self.cpe_id,
+            timeout,
+        )
+        # Give the CPE a moment to start the CWMP client after EnableCWMP=1
+        # The CWMP client needs time to initialize and send the Inform message
+        _LOGGER.debug("Waiting 10 seconds for CWMP client to initialize...")
+        sleep(10)
+        
+        # First, wait for the device to appear in GenieACS by checking
+        # if it exists in the device list before trying to query it
+        # This avoids ConnectionError when trying to create tasks for
+        # non-existent devices
+        max_attempts = (timeout - 10) // 5
+        for attempt in range(max_attempts):
+            try:
+                # Check if device exists in GenieACS by querying the devices
+                # endpoint without creating a task first. For GenieACS, we
+                # can check device existence directly.
+                quoted_id = quote('{"_id":"' + self.cpe_id + '"}', safe="")
+                device_check_url = (
+                    f'/devices?query={quoted_id}&projection={{"_id":1}}'
+                )
+                # Check if this is a GenieACS instance to use its internal
+                # method for checking device existence
+                if hasattr(acs, "_request_get"):
+                    # GenieACS has _request_get method
+                    response_data = acs._request_get(  # noqa: SLF001
+                        device_check_url, timeout=10
+                    )
+                else:
+                    # For other ACS types, try GPV directly
+                    # which will fail if device doesn't exist
+                    raise ConnectionError("Device check not supported")
+
+                # If device exists, response_data should be a list with items
+                if (
+                    response_data
+                    and isinstance(response_data, list)
+                    and len(response_data) > 0
+                ):
+                    _LOGGER.info(
+                        "CPE %s registered in ACS, verifying connectivity...",
+                        self.cpe_id,
+                    )
+                    # Now try to query a parameter to verify it's connected
+                    try:
+                        result = acs.GPV(
+                            "Device.DeviceInfo.SerialNumber",
+                            cpe_id=self.cpe_id,
+                            timeout=10,
+                        )
+                        if result and len(result) > 0:
+                            _LOGGER.info(
+                                "CPE %s successfully connected to ACS",
+                                self.cpe_id,
+                            )
+                            return
+                    except Exception as gpv_error:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "Device exists but GPV query failed: %s",
+                            gpv_error,
+                        )
+                else:
+                    _LOGGER.debug(
+                        "CPE not yet registered in ACS (attempt %d/%d)",
+                        attempt + 1,
+                        max_attempts,
+                    )
+            except Exception as e:  # noqa: BLE001
+                # Catch all exceptions - device might not exist yet
+                error_msg = str(e) or repr(e) or "No error message"
+                _LOGGER.debug(
+                    "CPE not yet available in ACS (attempt %d/%d): %s: %s",
+                    attempt + 1,
+                    max_attempts,
+                    type(e).__name__,
+                    error_msg,
+                )
+            if attempt < max_attempts - 1:
+                sleep(5)
+
+        msg = (
+            f"CPE {self.cpe_id} did not connect to ACS within "
+            f"{timeout} seconds"
+        )
+        _LOGGER.error(msg)
+        raise DeviceBootFailure(msg)
 
     def finalize_boot(self) -> bool:
         """Validate board settings post boot.
@@ -536,6 +791,8 @@ class PrplDockerCPE(CPE, BoardfarmDevice):
                 "acs_server.boardfarm.com:7545",
             )
             self.sw.configure_management_server(url=acs_url)
+            # Note: CPE will connect to ACS automatically after EnableCWMP=1
+            # No explicit wait needed - the CPE will send Inform message when ready
         _LOGGER.info("TR069 CPE IP: %s", self.sw.cpe_id)
 
     def _is_http_gui_running(self) -> bool:
