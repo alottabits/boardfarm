@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from argparse import Namespace
 from datetime import datetime, timedelta, timezone
+from time import time as time_now
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urljoin
 
@@ -94,14 +95,18 @@ class GenieACS(LinuxDevice, ACS):
             self.device_name,
             self.device_type,
         )
-        self._connect()
+        # Only connect console if SSH access is configured
+        if self._config.get("ipaddr") and self._config.get("connection_type"):
+            self._connect()
         self._init_nbi_client()
 
     @hookimpl
     def boardfarm_server_boot(self) -> None:
         """Boardfarm hook implementation to boot the ITCProvisioner."""
         _LOGGER.info("Booting %s(%s) device", self.device_name, self.device_type)
-        self._connect()
+        # Only connect console if SSH access is configured
+        if self._config.get("ipaddr") and self._config.get("connection_type"):
+            self._connect()
         self._init_nbi_client()
 
     @hookimpl
@@ -329,22 +334,44 @@ class GenieACS(LinuxDevice, ACS):
             # (e.g., "http://server/file.img" -> "file.img")
             targetfilename = url.split("/")[-1].split("?")[0]
 
-        # Build task dict - include all parameters to align with AxirosACS API
-        # GenieACS uses camelCase for parameter names (not PascalCase)
-        # GenieACS requires 'fileName' property (not 'targetFileName')
+        # Build task dict with required parameters
+        # IMPORTANT: GenieACS vs PrplOS parameter compatibility issue
+        # - GenieACS REQUIRES 'fileName' for task validation (rejects empty string)
+        # - GenieACS includes 'fileSize' if provided (for validation)
+        # - PrplOS ScheduleDownload does NOT support TargetFileName or FileSize
+        #   (only supports: CommandKey, FileType, URL, Username, Password, DelaySeconds)
+        # 
+        # When GenieACS converts this task to TR-069 XML, it sends TargetFileName and FileSize
+        # to PrplOS. According to TR-069 standards, CPEs should ignore unsupported parameters,
+        # but PrplOS may reject the Download RPC if these parameters are present.
+        #
+        # Current workaround: Include fileName and fileSize for GenieACS validation.
+        # If PrplOS rejects the Download RPC, this may need to be resolved via:
+        # 1. GenieACS device-specific configuration (tags/presets) to omit parameters
+        # 2. PrplOS update to ignore unsupported parameters per TR-069 standard
+        # 3. GenieACS modification to support device-specific parameter filtering
+
         task: dict[str, Any] = {
             "name": "download",
             "fileType": filetype,
             "url": url,
-            "fileName": targetfilename,  # GenieACS requires fileName
-            "fileSize": filesize,
-            "username": username,
-            "password": password,
             "commandKey": commandkey,
             "delaySeconds": delayseconds,
-            "successURL": successurl,
-            "failureURL": failureurl,
+            "fileName": targetfilename,  # Required by GenieACS (may cause PrplOS rejection)
         }
+
+        # Include fileSize for GenieACS validation (may cause PrplOS rejection)
+        # GenieACS may validate fileSize, so include it if provided
+        if filesize > 0:
+            task["fileSize"] = filesize
+
+        # Only include optional parameters if they have non-empty values
+        # NOTE: successURL and failureURL are omitted for PrplOS compatibility
+        # PrplOS ScheduleDownload only supports: CommandKey, FileType, URL, Username, Password, DelaySeconds
+        if username:
+            task["username"] = username
+        if password:
+            task["password"] = password
 
         return task
 
@@ -367,6 +394,20 @@ class GenieACS(LinuxDevice, ACS):
             timeout = timeout if timeout else GenieACS.CPE_wait_time
             response = self._client.post(request_url, json=data, timeout=timeout)
             response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # Capture error details from response body
+            error_msg = f"HTTP {exc.response.status_code}"
+            try:
+                error_body = exc.response.json()
+                if isinstance(error_body, dict):
+                    error_detail = error_body.get("error") or error_body.get("message") or str(error_body)
+                    error_msg = f"{error_msg}: {error_detail}"
+                else:
+                    error_msg = f"{error_msg}: {error_body}"
+            except Exception:  # noqa: BLE001
+                error_msg = f"{error_msg}: {exc.response.text[:200]}"
+            _LOGGER.error("GenieACS API error: %s", error_msg)
+            raise ConnectionError(error_msg) from exc
         except (httpx.ConnectError, httpx.HTTPError) as exc:
             raise ConnectionError from exc
         return response.json()
@@ -415,10 +456,14 @@ class GenieACS(LinuxDevice, ACS):
         """
         raise NotImplementedError
 
-    def Reboot(self, CommandKey: str, cpe_id: str | None = None) -> list[dict]:
+    def Reboot(
+        self,
+        CommandKey: str = "reboot",
+        cpe_id: str | None = None,
+    ) -> list[dict]:
         """Execute Reboot RPC.
 
-        :param CommandKey: reboot command key
+        :param CommandKey: reboot command key, defaults to "reboot"
         :type CommandKey: str
         :param cpe_id: cpe identifier, defaults to None
         :type cpe_id: str | None
@@ -508,25 +553,36 @@ class GenieACS(LinuxDevice, ACS):
         cpe_id = cpe_id if cpe_id else self._cpeid
 
         # GenieACS doesn't support scheduleInform as a task name
-        # For immediate inform (DelaySeconds=0), use connection_request
+        # For immediate inform (DelaySeconds=0), use GPV to trigger check-in
+        # GPV creates a task with connection_request and queries the device
+        # This is more reliable than just creating a dummy task because:
+        # 1. GPV queries the device after creating the task, which may cause
+        #    GenieACS to wait for the CPE to check in
+        # 2. It's a real operation, not a dummy task
+        # Note: ConnectionRequest should trigger immediate check-in, but it's
+        # not guaranteed. The CPE should check in within 30 seconds.
         # For delayed inform, use SPV to set PeriodicInformTime
         if DelaySeconds == 0:
-            # Trigger immediate connection via connection_request
-            # Create a dummy task with connection_request to trigger CPE
-            # This causes GenieACS to send ConnectionRequest to CPE
-            dummy_task = {
-                "name": "getParameterValues",
-                "parameterNames": ["Device.DeviceInfo.SoftwareVersion"],
-            }
+            # Trigger immediate connection via GPV
+            # GPV creates a task with connection_request and queries the device
+            # This should trigger the CPE to check in via ConnectionRequest
             try:
-                self._request_post(
-                    endpoint="/devices/" + quote(cpe_id) + "/tasks",
-                    data=dummy_task,
-                    conn_request=True,
+                # Use GPV to trigger check-in - it creates a task with connection_request
+                # and queries the device, which may help ensure the CPE checks in
+                self.GPV(
+                    param=["Device.DeviceInfo.SoftwareVersion"],
                     timeout=30,
+                    cpe_id=cpe_id,
                 )
                 success = True
-            except (ConnectionError, ValueError):
+            except (ConnectionError, ValueError, Exception):  # noqa: BLE001
+                # If GPV fails, the CPE might not be responding to ConnectionRequest
+                # This could mean:
+                # 1. CPE is not reachable via ConnectionRequestURL
+                # 2. CPE is busy with another session
+                # 3. Network issues
+                # We return False to indicate failure, but the task was created
+                # so the CPE might still check in later
                 success = False
         else:
             # For delayed inform, set PeriodicInformTime
@@ -570,16 +626,22 @@ class GenieACS(LinuxDevice, ACS):
         url: str,
         filetype: str = "1 Firmware Upgrade Image",
         targetfilename: str = "",
-        filesize: int = 200,
+        filesize: int = 200,  # noqa: ARG002
         username: str = "",
         password: str = "",
         commandkey: str = "",
-        delayseconds: int = 10,
-        successurl: str = "",
-        failureurl: str = "",
+        delayseconds: int = 0,
+        successurl: str = "",  # noqa: ARG002
+        failureurl: str = "",  # noqa: ARG002
         cpe_id: str | None = None,
     ) -> list[dict]:
         """Execute Download RPC.
+
+        **PrplOS Compatibility:**
+        After GenieACS patch, TargetFileName is only sent when non-empty,
+        making this compatible with PrplOS which rejects empty TargetFileName.
+        The patch ensures that when targetfilename is empty, GenieACS omits
+        the TargetFileName parameter from the TR-069 XML entirely.
 
         :param url: URL to download file
         :type url: str
@@ -597,21 +659,26 @@ class GenieACS(LinuxDevice, ACS):
                 ]
 
         :type filetype: str
-        :param targetfilename: TargetFileName to download through RPC
+        :param targetfilename: TargetFileName to download through RPC.
+            If empty, GenieACS will omit TargetFileName from TR-069 XML
+            (after patch). Default=""
         :type targetfilename: str
-        :param filesize: the size of file to download in bytes
+        :param filesize: the size of file to download in bytes (ignored)
         :type filesize: int
-        :param username: User to authenticate with file Server.  Default=""
+        :param username: User to authenticate with file Server. Default=""
         :type username: str
         :param password: Password to authenticate with file Server. Default=""
         :type password: str
-        :param commandkey: the string parameter passed in Download API
+        :param commandkey: the string parameter passed in Download API.
+            If empty, auto-generated. Default=""
         :type commandkey: str
-        :param delayseconds: delay of seconds in integer
+        :param delayseconds: delay of seconds in integer. Default=10
         :type delayseconds: int
-        :param successurl: URL to access in case of Download API execution succeeded
+        :param successurl: URL to access in case of Download API execution
+            succeeded (ignored for PrplOS compatibility)
         :type successurl: str
-        :param failureurl: URL to access in case of Download API execution Failed
+        :param failureurl: URL to access in case of Download API execution
+            Failed (ignored for PrplOS compatibility)
         :type failureurl: str
         :param cpe_id: cpe identifier, defaults to None
         :type cpe_id: str | None
@@ -619,38 +686,292 @@ class GenieACS(LinuxDevice, ACS):
         :rtype: list[dict]
         """
         cpe_id = cpe_id if cpe_id else self._cpeid
-        download_data = self._build_input_structs_download(
-            url=url,
-            filetype=filetype,
-            targetfilename=targetfilename,
-            filesize=filesize,
-            username=username,
-            password=password,
-            commandkey=commandkey,
-            delayseconds=delayseconds,
-            successurl=successurl,
-            failureurl=failureurl,
+        if not cpe_id:
+            msg = "cpe_id must be provided or set in device config"
+            raise ValueError(msg)
+
+        # Generate CommandKey if not provided
+        if not commandkey:
+            commandkey = f"download-{int(time_now())}"
+
+        # Extract filename from URL for fileName (required by GenieACS validation)
+        # GenieACS requires fileName to be non-empty, so we always extract it from URL
+        if url:
+            extracted_filename = url.split("/")[-1].split("?")[0]
+        else:
+            extracted_filename = ""
+
+        # Build Download task
+        # NOTE: After GenieACS patch, TargetFileName is only sent when
+        # non-empty. This makes it compatible with PrplOS which rejects
+        # empty TargetFileName. We set:
+        # - fileName: extracted from URL (required by GenieACS validation, must be non-empty)
+        # - targetFileName: empty string (so patch omits it from TR-069 XML for PrplOS)
+        download_task: dict[str, Any] = {
+            "name": "download",
+            "fileType": filetype,
+            "url": url,
+            "commandKey": commandkey,
+            "delaySeconds": delayseconds,
+            "fileName": extracted_filename,  # Required by GenieACS validation (must be non-empty)
+            "targetFileName": "",  # Explicitly empty so patch omits it (PrplOS doesn't support TargetFileName)
+        }
+
+        # Only include Username and Password if provided
+        if username:
+            download_task["username"] = username
+        if password:
+            download_task["password"] = password
+
+        # Debug: Log the Download task being sent
+        _LOGGER.info(
+            "Sending Download RPC to CPE %s with parameters: %s",
+            cpe_id,
+            {
+                "fileType": filetype,
+                "url": url,
+                "commandKey": commandkey,
+                "delaySeconds": delayseconds,
+                "fileName": extracted_filename,
+                "targetFileName": "",  # Empty - patch will omit from TR-069 XML
+                "username": "***" if username else None,
+                "password": "***" if password else None,
+            },
         )
 
-        # Post the download task to GenieACS
+        # Post the Download task to GenieACS via NBI API
         # Use longer timeout for download operations
-        # (firmware downloads can take time)
         timeout = 300  # 5 minutes default timeout
-        response_data = self._request_post(
-            endpoint="/devices/" + quote(cpe_id) + "/tasks",
-            data=download_data,
-            conn_request=True,
-            timeout=timeout,
-        )
 
-        # GenieACS returns task creation response
-        # Convert to list[dict] format consistent with other RPC methods
-        if isinstance(response_data, dict):
-            return [response_data]
-        if isinstance(response_data, list):
-            return response_data
-        # Fallback: return empty list if response format is unexpected
-        return []
+        # Verify device exists in GenieACS before creating task
+        # This helps catch CPE ID mismatches early
+        try:
+            quoted_id = quote('{"_id":"' + cpe_id + '"}', safe="")
+            device_check = self._request_get(
+                endpoint=f'/devices?query={quoted_id}&projection={{"_id":1}}',
+                timeout=10,
+            )
+            if isinstance(device_check, list) and len(device_check) == 0:
+                _LOGGER.warning(
+                    "Device with CPE ID %s not found in GenieACS. "
+                    "Task creation may fail. Available devices may use different ID format.",
+                    cpe_id,
+                )
+                # Try to list all available devices for debugging
+                try:
+                    all_devices = self._request_get(
+                        endpoint='/devices?projection={"_id":1}',
+                        timeout=10,
+                    )
+                    if isinstance(all_devices, list):
+                        device_ids = [
+                            d.get("_id")
+                            for d in all_devices
+                            if isinstance(d, dict) and d.get("_id")
+                        ]
+                        _LOGGER.warning(
+                            "Available device IDs in GenieACS: %s",
+                            device_ids,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass  # Ignore errors when listing devices
+            elif isinstance(device_check, list) and len(device_check) > 0:
+                actual_device_id = device_check[0].get("_id")
+                if actual_device_id != cpe_id:
+                    _LOGGER.warning(
+                        "CPE ID mismatch: requested %s but GenieACS device has _id=%s. "
+                        "Using actual GenieACS device ID for task creation.",
+                        cpe_id,
+                        actual_device_id,
+                    )
+                    # Use the actual device ID from GenieACS
+                    cpe_id = actual_device_id
+                else:
+                    _LOGGER.debug(
+                        "Verified device %s exists in GenieACS before creating Download task",
+                        cpe_id,
+                    )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning(
+                "Could not verify device existence for CPE %s: %s. "
+                "Proceeding with task creation anyway.",
+                cpe_id,
+                e,
+            )
+
+        _LOGGER.debug(
+            "Creating Download task for CPE %s via NBI API endpoint: /devices/%s/tasks",
+            cpe_id,
+            quote(cpe_id),
+        )
+        _LOGGER.debug("Download task payload: %s", download_task)
+
+        try:
+            response_data = self._request_post(
+                endpoint="/devices/" + quote(cpe_id) + "/tasks",
+                data=download_task,
+                conn_request=True,
+                timeout=timeout,
+            )
+
+            _LOGGER.info(
+                "Download task created successfully for CPE %s. Response: %s",
+                cpe_id,
+                response_data,
+            )
+            _LOGGER.debug(
+                "Full Download task creation response for CPE %s: %s",
+                cpe_id,
+                response_data,
+            )
+
+            # Verify task was created and assigned to the correct device
+            try:
+                # First, verify the device still exists and get its actual _id
+                quoted_id = quote('{"_id":"' + cpe_id + '"}', safe="")
+                device_check = self._request_get(
+                    endpoint=f'/devices?query={quoted_id}&projection={{"_id":1}}',
+                    timeout=10,
+                )
+                if isinstance(device_check, list) and len(device_check) > 0:
+                    actual_device_id = device_check[0].get("_id")
+                    if actual_device_id != cpe_id:
+                        _LOGGER.error(
+                            "CRITICAL: Task was created for CPE ID %s, but GenieACS device "
+                            "has _id=%s. Task may be assigned to wrong device!",
+                            cpe_id,
+                            actual_device_id,
+                        )
+                    else:
+                        _LOGGER.debug(
+                            "Verified device %s exists in GenieACS after task creation",
+                            cpe_id,
+                        )
+                else:
+                    _LOGGER.error(
+                        "CRITICAL: Device %s not found in GenieACS after task creation! "
+                        "Task may have been created for a non-existent device.",
+                        cpe_id,
+                    )
+
+                # Now verify the task exists for this device
+                tasks_response = self._request_get(
+                    endpoint="/devices/" + quote(cpe_id) + "/tasks",
+                    timeout=10,
+                )
+                _LOGGER.debug(
+                    "Current tasks for CPE %s: %s",
+                    cpe_id,
+                    tasks_response,
+                )
+                # Look for our Download task in the list
+                if isinstance(tasks_response, list):
+                    download_tasks = [
+                        t
+                        for t in tasks_response
+                        if isinstance(t, dict)
+                        and t.get("name") == "download"
+                        and (
+                            t.get("commandKey") == commandkey
+                            or t.get("url") == url
+                        )
+                    ]
+                    if download_tasks:
+                        task_device_id = download_tasks[0].get("device")
+                        if task_device_id and task_device_id != cpe_id:
+                            _LOGGER.error(
+                                "CRITICAL: Download task found but assigned to different device! "
+                                "Task device: %s, Expected device: %s",
+                                task_device_id,
+                                cpe_id,
+                            )
+                        else:
+                            _LOGGER.info(
+                                "Verified Download task exists in GenieACS for CPE %s: %s",
+                                cpe_id,
+                                download_tasks[0],
+                            )
+                    else:
+                        _LOGGER.warning(
+                            "Download task not found in GenieACS task list for CPE %s. "
+                            "Available tasks: %s",
+                            cpe_id,
+                            [t.get("name") for t in tasks_response if isinstance(t, dict)],
+                        )
+            except httpx.HTTPStatusError as exc:
+                # Capture full HTTP error details
+                error_msg = f"HTTP {exc.response.status_code}"
+                try:
+                    error_body = exc.response.json()
+                    if isinstance(error_body, dict):
+                        error_detail = (
+                            error_body.get("error") or error_body.get("message")
+                        )
+                        if error_detail:
+                            error_msg += f": {error_detail}"
+                    elif isinstance(error_body, str):
+                        error_msg += f": {error_body}"
+                except ValueError:
+                    error_msg += f": {exc.response.text[:200]}"
+                _LOGGER.warning(
+                    "Could not verify Download task creation for CPE %s: %s (URL: %s)",
+                    cpe_id,
+                    error_msg,
+                    urljoin(self._base_url, "/devices/" + quote(cpe_id) + "/tasks"),
+                )
+            except httpx.ConnectError as exc:
+                _LOGGER.warning(
+                    "Could not connect to GenieACS to verify Download task for CPE %s: %s",
+                    cpe_id,
+                    exc,
+                )
+            except Exception as e:  # noqa: BLE001
+                import traceback  # noqa: PLC0415
+
+                _LOGGER.warning(
+                    "Could not verify Download task creation for CPE %s: %s (Type: %s). "
+                    "Traceback: %s",
+                    cpe_id,
+                    e,
+                    type(e).__name__,
+                    traceback.format_exc(),
+                )
+
+            # GenieACS returns task creation response
+            # Convert to list[dict] format consistent with other RPC methods
+            if isinstance(response_data, dict):
+                return [response_data]
+            if isinstance(response_data, list):
+                return response_data
+            # Fallback: return empty list if response format is unexpected
+            return []
+        except httpx.HTTPStatusError as exc:
+            # Capture error details from response body
+            error_msg = f"HTTP {exc.response.status_code}"
+            try:
+                error_body = exc.response.json()
+                if isinstance(error_body, dict):
+                    error_detail = (
+                        error_body.get("error") or error_body.get("message")
+                    )
+                    if error_detail:
+                        error_msg += f": {error_detail}"
+                elif isinstance(error_body, str):
+                    error_msg += f": {error_body}"
+            except ValueError:
+                # If response is not JSON, use raw text
+                error_msg += f": {exc.response.text}"
+            _LOGGER.error(
+                "Failed to create Download task for CPE %s: %s",
+                cpe_id,
+                error_msg,
+            )
+            raise ConnectionError(error_msg) from exc
+        except httpx.ConnectError as exc:
+            _LOGGER.error(
+                "Failed to connect to GenieACS for CPE %s: %s", cpe_id, exc
+            )
+            raise ConnectionError from exc
 
     def provision_cpe_via_tr069(
         self,
@@ -713,9 +1034,14 @@ class GenieACS(LinuxDevice, ACS):
     def console(self) -> BoardfarmPexpect:
         """Returns ACS console.
 
-        :raises NotSupportedError: does not support SSH
+        :return: console
+        :rtype: BoardfarmPexpect
+        :raises NotSupportedError: if the ACS does not have console access
         """
-        raise NotSupportedError
+        if self._console is not None:
+            return self._console
+        msg = f"{self._config.get('name', 'GenieACS')} has no console access"
+        raise NotSupportedError(msg)
 
     @property
     def firewall(self) -> IptablesFirewall:
