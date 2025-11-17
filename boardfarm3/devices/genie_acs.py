@@ -558,13 +558,23 @@ class GenieACS(LinuxDevice, ACS):
     ) -> list[dict]:
         """Execute ScheduleInform RPC.
 
-        For immediate inform (DelaySeconds=0), uses GPV to trigger ConnectionRequest.
-        For delayed inform, sets PeriodicInformTime via SPV.
+        **IMPORTANT**: GenieACS does NOT support `scheduleInform` as a task type via
+        the NBI API. Unlike `reboot` and `download` tasks, ScheduleInform must be
+        implemented using workarounds:
+
+        - **Immediate inform (DelaySeconds=0)**: Uses GPV to trigger ConnectionRequest.
+          This forces the CPE to check in immediately by requesting a parameter value.
+        - **Delayed inform (DelaySeconds>0)**: Sets PeriodicInformTime via SPV to
+          schedule the CPE to check in at a future time.
+
+        This is the standard workaround recommended by the GenieACS community when
+        ScheduleInform functionality is needed.
 
         :param CommandKey: string to return in the CommandKey element of the
             InformStruct when the CPE calls the Inform method, defaults to "Test"
             Note: CommandKey is kept for API consistency with AxirosACS but
-            is not used in GenieACS implementation
+            is not used in GenieACS implementation (GenieACS workaround doesn't
+            support CommandKey parameter)
         :type CommandKey: str
         :param DelaySeconds: number of seconds from the time this method is
             called to the time the CPE is requested to initiate a one-time Inform
