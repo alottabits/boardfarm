@@ -383,7 +383,8 @@ class GenieACS(LinuxDevice, ACS):
         timeout: int | None = None,
     ) -> Any:  # noqa: ANN401
         if conn_request:
-            request_url = urljoin(self._base_url, f"{endpoint}?connection_request")
+            # GenieACS requires '?connection_request=' (with equals) to trigger immediate connection
+            request_url = urljoin(self._base_url, f"{endpoint}?connection_request=")
         else:
             err_msg = (
                 "It is unclear how the code would work without 'conn_request' "
@@ -562,13 +563,11 @@ class GenieACS(LinuxDevice, ACS):
         the NBI API. Unlike `reboot` and `download` tasks, ScheduleInform must be
         implemented using workarounds:
 
-        - **Immediate inform (DelaySeconds=0)**: Uses GPV to trigger ConnectionRequest.
-          This forces the CPE to check in immediately by requesting a parameter value.
+        - **Immediate inform (DelaySeconds=0)**: Creates a getParameterValues task with
+          `?connection_request=` query parameter to trigger immediate ConnectionRequest.
+          This forces the CPE to check in immediately and collect all pending tasks.
         - **Delayed inform (DelaySeconds>0)**: Sets PeriodicInformTime via SPV to
           schedule the CPE to check in at a future time.
-
-        This is the standard workaround recommended by the GenieACS community when
-        ScheduleInform functionality is needed.
 
         :param CommandKey: string to return in the CommandKey element of the
             InformStruct when the CPE calls the Inform method, defaults to "Test"
@@ -586,15 +585,31 @@ class GenieACS(LinuxDevice, ACS):
         :rtype: list[dict]
         """
         cpe_id = cpe_id if cpe_id else self._cpeid
+        if not cpe_id:
+            msg = "cpe_id must be provided or set in device config"
+            raise ValueError(msg)
 
         if DelaySeconds == 0:
-            # Trigger immediate connection via GPV
-            self.GPV(
-                param=["Device.DeviceInfo.SoftwareVersion"],
-                timeout=30,
-                cpe_id=cpe_id,
-            )
-            success = True
+            # Trigger immediate connection by creating a getParameterValues task
+            # with ?connection_request= parameter. This will cause GenieACS to
+            # immediately send a ConnectionRequest to the CPE, triggering it to
+            # check in and collect all pending tasks.
+            gpv_task = {
+                "name": "getParameterValues",
+                "parameterNames": ["Device.DeviceInfo.SoftwareVersion"],
+            }
+            try:
+                self._request_post(
+                    endpoint=f"/devices/{quote(cpe_id)}/tasks",
+                    data=gpv_task,
+                    conn_request=True,
+                    timeout=30,
+                )
+                success = True
+                _LOGGER.info("Immediate connection request triggered for CPE %s", cpe_id)
+            except Exception as exc:
+                _LOGGER.error("Failed to trigger immediate connection: %s", exc)
+                success = False
         else:
             # For delayed inform, set PeriodicInformTime
             target_time = datetime.now(timezone.utc) + timedelta(seconds=DelaySeconds)
@@ -641,7 +656,9 @@ class GenieACS(LinuxDevice, ACS):
     ) -> list[dict]:
         """Execute Download RPC via GenieACS NBI API.
 
-        Creates a download task that will be executed when the CPE checks in.
+        Creates a download task and triggers immediate CPE connection via the
+        `?connection_request=` parameter. This causes the CPE to check in immediately
+        and collect the download task, rather than waiting for the next periodic check-in.
 
         :param url: URL to download file
         :type url: str
@@ -712,6 +729,9 @@ class GenieACS(LinuxDevice, ACS):
             download_task["password"] = password
 
         # Create Download task via GenieACS NBI API
+        # The conn_request=True parameter triggers ?connection_request= which causes
+        # GenieACS to immediately send a ConnectionRequest to the CPE, triggering
+        # immediate check-in and task collection
         response_data = self._request_post(
             endpoint="/devices/" + quote(cpe_id) + "/tasks",
             data=download_task,
