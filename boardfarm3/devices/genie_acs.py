@@ -287,12 +287,10 @@ class GenieACS(LinuxDevice, ACS):
         data = []
         for spv_params in param_value:
             if isinstance(spv_params, dict):
-                data.append(
-                    [
-                        f"{iter(spv_params.keys())}",
-                        iter(spv_params.values()),
-                    ],
-                )
+                # Extract actual key-value pairs from the dictionary
+                # Aligned with AxirosACS implementation
+                for key, value in spv_params.items():
+                    data.append([key, value])
             elif isinstance(spv_params, str) and isinstance(param_value, dict):
                 data.append([spv_params, param_value[spv_params]])
         return {"name": "setParameterValues", "parameterValues": data}
@@ -443,7 +441,9 @@ class GenieACS(LinuxDevice, ACS):
             conn_request=True,
             timeout=timeout,
         )
-        return bool(response_data)
+        # Return 0 for success (truthy response), 1 for failure (falsy response)
+        # Aligned with AxirosACS implementation
+        return 0 if response_data else 1
 
     def FactoryReset(self, cpe_id: str | None = None) -> list[dict]:
         """Execute FactoryReset RPC.
@@ -464,32 +464,47 @@ class GenieACS(LinuxDevice, ACS):
     ) -> list[dict]:
         """Execute Reboot RPC via GenieACS NBI API.
 
-        Creates a reboot task that will be executed when the CPE checks in.
+        Creates a reboot task via GenieACS NBI API that matches the behavior of
+        the "Reboot" button in the GenieACS UI. The task will be executed when
+        the CPE checks in. The `conn_request=True` parameter triggers an immediate
+        ConnectionRequest to the CPE, causing it to check in immediately rather
+        than waiting for the next periodic check-in.
 
-        :param CommandKey: reboot command key, defaults to "reboot"
+        This method sends:
+        - Endpoint: POST /devices/{cpe_id}/tasks?connection_request=
+        - Body: {"name": "reboot", "commandKey": CommandKey}
+
+        :param CommandKey: reboot command key that will be returned in the
+            CommandKey element of the InformStruct when the CPE reboots,
+            defaults to "reboot"
         :type CommandKey: str
         :param cpe_id: cpe identifier, defaults to None
         :type cpe_id: str | None
         :return: reboot task creation response (empty list for compatibility)
         :rtype: list[dict]
+        :raises ValueError: if cpe_id is not provided
         """
         if not cpe_id:
             raise ValueError("cpe_id is required for Reboot operation")
 
         # Create reboot task via GenieACS NBI API
+        # Format matches exactly what the GenieACS UI sends when clicking "Reboot"
         reboot_task = {
             "name": "reboot",
             "commandKey": CommandKey,
         }
 
+        # URL encode cpe_id to handle special characters (consistent with other methods)
+        # The conn_request=True parameter adds ?connection_request= to trigger immediate
+        # ConnectionRequest to the CPE
         self._request_post(
-            endpoint=f"/devices/{cpe_id}/tasks",
+            endpoint="/devices/" + quote(cpe_id) + "/tasks",
             data=reboot_task,
             conn_request=True,
             timeout=30,
         )
 
-        _LOGGER.info("Reboot task created for CPE %s", cpe_id)
+        _LOGGER.info("Reboot task created for CPE %s (CommandKey: %s)", cpe_id, CommandKey)
 
         # Return empty list for compatibility with ACS template interface
         return []
