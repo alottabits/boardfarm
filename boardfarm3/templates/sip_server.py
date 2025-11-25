@@ -354,6 +354,50 @@ class SIPServer(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def get_active_calls(self) -> int:
+        """Get number of active SIP calls/dialogs.
+        
+        :return: Number of active calls
+        :rtype: int
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_rtpengine_stats(self) -> dict:
+        """Get RTPEngine statistics.
+        
+        Returns dictionary with RTPEngine statistics including whether
+        RTPEngine is engaged for NAT traversal and number of active sessions.
+        
+        :return: Dictionary with RTPEngine stats
+        :rtype: dict
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def verify_sip_message(
+        self, 
+        message_type: str, 
+        since: any = None,
+        timeout: int = 5
+    ) -> bool:
+        """Verify SIP message appears in server logs.
+        
+        Checks server logs for specific SIP message types (INVITE, BYE, ACK, etc.)
+        with optional timestamp filtering to ensure only recent messages are checked.
+        
+        :param message_type: SIP message type (INVITE, BYE, ACK, etc.)
+        :type message_type: str
+        :param since: Start time for log search (datetime object or None)
+        :type since: any
+        :param timeout: Timeout for log check in seconds
+        :type timeout: int
+        :return: True if message found
+        :rtype: bool
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def stop_tcpdump(self, process_id: str) -> None:
         """Stop tcpdump capture.
 

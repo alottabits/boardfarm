@@ -390,6 +390,111 @@ class SIPcenterKamailio5(LinuxDevice, SIPServerTemplate):
         msg = f"provided number:- {number},not present in the user list {self._users}"
         raise VoiceError(msg)
 
+    def get_active_calls(self) -> int:
+        """Get number of active SIP calls/dialogs.
+        
+        Uses kamctl dialog show to count active dialogs.
+        
+        :return: Number of active calls
+        :rtype: int
+        """
+        try:
+            output = self._console.execute_command("kamctl dialog show")
+            # Count dialog entries (each active call has a dialog)
+            # Look for "dialog::" lines which indicate active dialogs
+            dialog_count = output.count("dialog::")
+            _LOGGER.debug(f"Active calls on SIP server: {dialog_count}")
+            return dialog_count
+        except Exception as exc:
+            _LOGGER.warning(f"Could not check active calls: {exc}")
+            return -1  # Unknown
+
+    def get_rtpengine_stats(self) -> dict[str, Any]:
+        """Get RTPEngine statistics.
+        
+        Uses rtpengine-ctl to check if RTPEngine is engaged for NAT traversal.
+        
+        :return: Dictionary with RTPEngine stats
+        :rtype: dict[str, Any]
+        """
+        try:
+            output = self._console.execute_command("rtpengine-ctl list")
+            
+            # Parse output to determine if RTPEngine is engaged
+            # If there are active sessions, RTPEngine is engaged
+            engaged = "sessions" in output.lower() and "0" not in output
+            
+            return {
+                'engaged': engaged,
+                'active_sessions': self._parse_rtpengine_sessions(output),
+            }
+        except Exception as exc:
+            _LOGGER.warning(f"Could not check RTPEngine stats: {exc}")
+            return {'engaged': False, 'active_sessions': 0}
+
+    def verify_sip_message(
+        self, 
+        message_type: str, 
+        since: Any = None,
+        timeout: int = 5
+    ) -> bool:
+        """Verify SIP message appears in Kamailio logs.
+        
+        Uses journalctl to check for SIP messages with timestamp filtering.
+        
+        :param message_type: SIP message type (INVITE, BYE, ACK, etc.)
+        :type message_type: str
+        :param since: Start time for log search (datetime object or None)
+        :type since: Any
+        :param timeout: Timeout for log check in seconds
+        :type timeout: int
+        :return: True if message found
+        :rtype: bool
+        """
+        try:
+            import datetime
+            
+            # Determine time filter
+            if since and hasattr(since, 'strftime'):
+                time_filter = since.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                time_filter = "30 seconds ago"
+            
+            # Use journalctl with timestamp filtering
+            cmd = f'journalctl -u kamailio --since "{time_filter}" | grep -i "{message_type}"'
+            output = self._console.execute_command(cmd)
+            
+            # Check if message was found
+            found = message_type.upper() in output.upper()
+            if found:
+                _LOGGER.debug(f"Found {message_type} message in logs (since {time_filter})")
+            else:
+                _LOGGER.debug(f"{message_type} message not found in logs (since {time_filter})")
+            
+            return found
+        except Exception as exc:
+            _LOGGER.warning(f"Could not check SIP logs: {exc}")
+            return False
+
+    def _parse_rtpengine_sessions(self, output: str) -> int:
+        """Parse RTPEngine session count from rtpengine-ctl output.
+        
+        :param output: Output from rtpengine-ctl list
+        :type output: str
+        :return: Number of active sessions
+        :rtype: int
+        """
+        try:
+            # Try to parse session count from output
+            # Format varies, but typically contains "sessions: N"
+            import re
+            match = re.search(r'sessions?:\s*(\d+)', output, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+            return 0
+        except Exception:
+            return 0
+
 
 if __name__ == "__main__":
     # stubbed instantation of the device
