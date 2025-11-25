@@ -801,6 +801,50 @@ class PJSIPPhone(LinuxDevice, SIPPhoneTemplate):
         if not self.is_code_ended():
             raise VoiceError(f"Call not ended after dialing a feature code: {code}")
 
+    def wait_for_state(self, state: str, timeout: int = 10) -> bool:
+        """Wait for phone to reach specific state.
+        
+        This method polls the phone state until the desired state is reached
+        or the timeout expires. Eliminates need for manual polling in test code.
+        
+        :param state: Target state ('idle', 'ringing', 'connected', 'dialing')
+        :type state: str
+        :param timeout: Maximum wait time in seconds
+        :type timeout: int
+        :return: True if state reached, False if timeout
+        :rtype: bool
+        :raises ValueError: if state is not recognized
+        """
+        import time
+        
+        state_checks = {
+            'idle': self.is_idle,
+            'ringing': self.is_ringing,
+            'connected': self.is_connected,
+            'dialing': self.is_dialing,
+        }
+        
+        if state not in state_checks:
+            msg = f"Unknown state: {state}. Valid states: {list(state_checks.keys())}"
+            raise ValueError(msg)
+        
+        check_fn = state_checks[state]
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            if check_fn():
+                _LOGGER.debug(
+                    f"Phone {self.name} reached {state} state "
+                    f"after {time.time() - start_time:.1f}s"
+                )
+                return True
+            time.sleep(0.5)
+        
+        _LOGGER.warning(
+            f"Phone {self.name} did not reach {state} state within {timeout}s"
+        )
+        return False
+
     def press_buttons(self, buttons: str) -> None:
         """Press user provided buttons.
 

@@ -378,6 +378,23 @@ class SIPPhone(ABC):
         raise NotImplementedError(msg)
 
     @abstractmethod
+    def wait_for_state(self, state: str, timeout: int = 10) -> bool:
+        """Wait for phone to reach specific state.
+        
+        Polls the phone state until the desired state is reached or timeout expires.
+        This eliminates the need for manual polling in test code.
+        
+        :param state: Target state ('idle', 'ringing', 'connected', 'dialing')
+        :type state: str
+        :param timeout: Maximum wait time in seconds
+        :type timeout: int
+        :return: True if state reached, False if timeout
+        :rtype: bool
+        :raises ValueError: if state is not recognized
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def press_buttons(self, buttons: str) -> None:
         """Press the given sequence of buttons.
 
