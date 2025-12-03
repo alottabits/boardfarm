@@ -139,15 +139,14 @@ def tcpdump_read(  # noqa: PLR0913
     :type opts: str
     :param timeout: timeout in seconds for reading pcap
     :type timeout: int
-    :param rm_pcap: romove pcap file afterwards
+    :param rm_pcap: remove pcap file afterwards
     :type rm_pcap: bool
     :return: tcpdump output
     :rtype: str
     """
-    if opts:
-        protocol = f"{protocol} and {opts}"
+    extra_opts = " and ".join([x for x in (protocol, opts) if x])
     tcpdump_output = console.execute_command(
-        f"tcpdump -n -r {capture_file} {protocol}",
+        f"tcpdump -n -r {capture_file} {extra_opts}",
         timeout=timeout,
     )
     if rm_pcap:
@@ -573,7 +572,8 @@ class HTTPResult:  # pylint: disable=too-few-public-methods
 
     @staticmethod
     def _parse_response(response: str) -> tuple[str, str, str]:
-        if "Connection refused" in response or "Connection timed out" in response:
+        errors = ["Connection refused", "Connection timed out", "Failed to connect"]
+        if any(err in response for err in errors):
             msg = f"Curl Failure due to the following reason {response}"
             raise UseCaseFailure(msg)
         raw_search_output = re.findall(
