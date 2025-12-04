@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
@@ -30,6 +31,253 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+class URLPatternDetector:
+    """Detects and groups similar URL patterns.
+    
+    This class analyzes a collection of URLs to identify patterns where
+    URLs share the same structure but differ in specific segments (e.g., IDs).
+    It generates parameterized templates that represent these patterns.
+    
+    Example:
+        URLs: [
+            "#!/devices/ABC123",
+            "#!/devices/DEF456",
+            "#!/devices/GHI789"
+        ]
+        Pattern: "#!/devices/{device_id}"
+    """
+    
+    def __init__(self, min_pattern_count: int = 3):
+        """Initialize the pattern detector.
+        
+        Args:
+            min_pattern_count: Minimum number of URLs required to form a pattern
+        """
+        self.min_pattern_count = min_pattern_count
+    
+    def detect_patterns(self, pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Detect URL patterns from a list of pages.
+        
+        Args:
+            pages: List of page dictionaries with 'url' field
+            
+        Returns:
+            List of detected patterns with metadata
+        """
+        # Group URLs by structure
+        url_groups = self._group_similar_urls(pages)
+        
+        patterns = []
+        for group_key, group_pages in url_groups.items():
+            if len(group_pages) >= self.min_pattern_count:
+                pattern = self._create_pattern(group_pages)
+                if pattern:
+                    patterns.append(pattern)
+        
+        return patterns
+    
+    def _group_similar_urls(self, pages: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+        """Group URLs with similar structure.
+        
+        Args:
+            pages: List of page dictionaries
+            
+        Returns:
+            Dictionary mapping group keys to lists of pages
+        """
+        groups: dict[str, list[dict[str, Any]]] = {}
+        
+        for page in pages:
+            url = page.get("url", "")
+            if not url:
+                continue
+            
+            # Parse URL to get the path structure
+            parsed = urlparse(url)
+            
+            # For hash-based SPAs, analyze the fragment
+            path = parsed.fragment if parsed.fragment else parsed.path
+            
+            # Strip leading ! from hash fragments (e.g., #!/devices/123 -> /devices/123)
+            if path.startswith("!"):
+                path = path[1:]
+            
+            # Split path into segments
+            segments = [s for s in path.split("/") if s]
+            
+            # Create a group key based on structure (number of segments and static parts)
+            if len(segments) >= 2:
+                # Use all segments except the last one as the group key
+                # This groups URLs like #!/devices/ID1, #!/devices/ID2 together
+                group_key = "/".join(segments[:-1])
+            else:
+                # For single-segment paths, use the full path
+                group_key = path
+            
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append(page)
+        
+        return groups
+    
+    def _create_pattern(self, pages: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Create a pattern from a group of similar pages.
+        
+        Args:
+            pages: List of page dictionaries with similar structure
+            
+        Returns:
+            Pattern dictionary or None if pattern cannot be created
+        """
+        if not pages:
+            return None
+        
+        # Get the first URL as reference
+        first_url = pages[0].get("url", "")
+        parsed = urlparse(first_url)
+        
+        # For hash-based SPAs, work with the fragment
+        path = parsed.fragment if parsed.fragment else parsed.path
+        
+        # Strip leading ! from hash fragments (e.g., #!/devices/123 -> /devices/123)
+        if path.startswith("!"):
+            path = path[1:]
+        
+        segments = [s for s in path.split("/") if s]
+        
+        if len(segments) < 2:
+            return None
+        
+        # Extract variable segments (last segment is typically the ID)
+        static_parts = segments[:-1]
+        variable_segment = segments[-1]
+        
+        # Determine parameter name based on context
+        param_name = self._infer_parameter_name(static_parts, variable_segment)
+        
+        # Create pattern template
+        if parsed.fragment:
+            # Hash-based routing - reconstruct with #!/
+            pattern_template = "#!/" + "/".join(static_parts) + f"/{{{param_name}}}"
+        else:
+            # Path-based routing
+            pattern_template = "/" + "/".join(static_parts) + f"/{{{param_name}}}"
+        
+        # Collect example URLs and extract common page structure
+        example_urls = [p.get("url", "") for p in pages[:5]]  # Keep up to 5 examples
+        
+        # Analyze common page structure
+        page_structure = self._extract_common_structure(pages)
+        
+        return {
+            "pattern": pattern_template,
+            "description": self._generate_description(static_parts, param_name),
+            "parameter_name": param_name,
+            "example_urls": example_urls,
+            "count": len(pages),
+            "page_structure": page_structure,
+        }
+    
+    def _infer_parameter_name(self, static_parts: list[str], variable_segment: str) -> str:
+        """Infer a descriptive parameter name from the URL context.
+        
+        Args:
+            static_parts: Static segments of the URL
+            variable_segment: The variable segment (typically an ID)
+            
+        Returns:
+            Inferred parameter name
+        """
+        if not static_parts:
+            return "id"
+        
+        # Use the last static part to infer the parameter name
+        last_static = static_parts[-1].lower()
+        
+        # Common mappings
+        if "device" in last_static:
+            return "device_id"
+        elif "user" in last_static:
+            return "user_id"
+        elif "preset" in last_static:
+            return "preset_id"
+        elif "provision" in last_static:
+            return "provision_id"
+        elif "file" in last_static:
+            return "file_id"
+        else:
+            return f"{last_static}_id"
+    
+    def _generate_description(self, static_parts: list[str], param_name: str) -> str:
+        """Generate a human-readable description for the pattern.
+        
+        Args:
+            static_parts: Static segments of the URL
+            param_name: Parameter name
+            
+        Returns:
+            Description string
+        """
+        if not static_parts:
+            return f"Page with {param_name}"
+        
+        last_static = static_parts[-1]
+        return f"{last_static.capitalize()} detail page"
+    
+    def _extract_common_structure(self, pages: list[dict[str, Any]]) -> dict[str, Any]:
+        """Extract common structural elements from pages.
+        
+        Args:
+            pages: List of page dictionaries
+            
+        Returns:
+            Dictionary with common structural elements
+        """
+        if not pages:
+            return {}
+        
+        # Use the first page as reference
+        first_page = pages[0]
+        
+        return {
+            "title_pattern": first_page.get("title", ""),
+            "page_type": first_page.get("page_type", "unknown"),
+            "common_buttons": self._find_common_elements(pages, "buttons"),
+            "common_inputs": self._find_common_elements(pages, "inputs"),
+        }
+    
+    def _find_common_elements(self, pages: list[dict[str, Any]], element_type: str) -> list[str]:
+        """Find elements that appear in all pages.
+        
+        Args:
+            pages: List of page dictionaries
+            element_type: Type of element to analyze (e.g., 'buttons', 'inputs')
+            
+        Returns:
+            List of common element descriptions
+        """
+        if not pages:
+            return []
+        
+        # Get elements from first page
+        first_elements = pages[0].get(element_type, [])
+        common = []
+        
+        for element in first_elements:
+            # Check if this element appears in all pages
+            element_text = element.get("text", "") or element.get("title", "")
+            if element_text and all(
+                any(
+                    e.get("text", "") == element_text or e.get("title", "") == element_text
+                    for e in page.get(element_type, [])
+                )
+                for page in pages
+            ):
+                common.append(element_text)
+        
+        return common[:5]  # Limit to 5 common elements
 
 
 class UIDiscoveryTool:
@@ -61,6 +309,11 @@ class UIDiscoveryTool:
         password: str | None = None,
         headless: bool = True,
         timeout: int = 10,
+        enable_pattern_detection: bool = True,
+        min_pattern_count: int = 3,
+        enable_interaction_discovery: bool = False,
+        safe_buttons: str = "New,Add,Edit,View,Show,Cancel,Close",
+        interaction_timeout: int = 2,
     ):
         """Initialize the UI Discovery Tool.
         
@@ -70,10 +323,20 @@ class UIDiscoveryTool:
             password: Optional login password
             headless: Run browser in headless mode
             timeout: Default timeout for element waits
+            enable_pattern_detection: Enable URL pattern detection
+            min_pattern_count: Minimum URLs required to form a pattern
+            enable_interaction_discovery: Enable button click and modal discovery
+            safe_buttons: Comma-separated list of safe button text patterns
+            interaction_timeout: Seconds to wait for modals after clicking
         """
         self.base_url = base_url.rstrip("/")
         self.username = username
         self.password = password
+        self.enable_pattern_detection = enable_pattern_detection
+        self.min_pattern_count = min_pattern_count
+        self.enable_interaction_discovery = enable_interaction_discovery
+        self.safe_buttons = safe_buttons
+        self.interaction_timeout = interaction_timeout
 
         # Setup Firefox driver
         options = Options()
@@ -118,7 +381,7 @@ class UIDiscoveryTool:
         
         Args:
             login_url: Optional custom login URL. If not provided,
-                      uses base_url + '/login'
+                      will attempt to find login page from base_url.
         
         Raises:
             TimeoutException: If login elements are not found
@@ -127,21 +390,43 @@ class UIDiscoveryTool:
             logger.info("No credentials provided, skipping login")
             return
 
-        url = login_url or f"{self.base_url}/login"
-        logger.info("Logging in to %s", url)
-        self.driver.get(url)
+        if login_url:
+            logger.info("Navigating to custom login URL: %s", login_url)
+            self.driver.get(login_url)
+        else:
+            logger.info("Navigating to base URL: %s", self.base_url)
+            self.driver.get(self.base_url)
 
         try:
-            # Try common username field selectors
+            # Check if we need to click a login link first
+            try:
+                # fast check for username field
+                self.wait.until(
+                    EC.presence_of_element_located((By.NAME, "username"))
+                )
+                logger.info("Already on login page")
+            except TimeoutException:
+                logger.info("Username field not found, looking for 'Log in' link")
+                try:
+                    login_link = self.wait.until(
+                        EC.element_to_be_clickable((By.PARTIAL_LINK_TEXT, "Log in"))
+                    )
+                    login_link.click()
+                    logger.info("Clicked 'Log in' link")
+                except TimeoutException:
+                    logger.warning("Could not find 'Log in' link, assuming we are on login page or it will load")
+
+            # Find username field
             username_field = None
             for selector in [
                 (By.NAME, "username"),
+                (By.CSS_SELECTOR, "input[name='username']"),
                 (By.ID, "username"),
                 (By.CSS_SELECTOR, "input[type='text']"),
             ]:
                 try:
                     username_field = self.wait.until(
-                        EC.presence_of_element_located(selector)
+                        EC.visibility_of_element_located(selector)
                     )
                     break
                 except TimeoutException:
@@ -150,26 +435,68 @@ class UIDiscoveryTool:
             if not username_field:
                 raise TimeoutException("Could not find username field")
 
+            username_field.clear()
             username_field.send_keys(self.username)
 
             # Find password field
-            password_field = self.driver.find_element(
-                By.CSS_SELECTOR, "input[type='password']"
-            )
+            password_field = None
+            for selector in [
+                (By.NAME, "password"),
+                (By.CSS_SELECTOR, "input[name='password']"),
+                (By.CSS_SELECTOR, "input[type='password']"),
+            ]:
+                try:
+                    password_field = self.wait.until(
+                        EC.visibility_of_element_located(selector)
+                    )
+                    break
+                except TimeoutException:
+                    continue
+            
+            if not password_field:
+                 raise TimeoutException("Could not find password field")
+
+            password_field.clear()
             password_field.send_keys(self.password)
 
             # Find and click submit button
-            submit_btn = self.driver.find_element(
-                By.CSS_SELECTOR, "button[type='submit']"
-            )
+            submit_btn = None
+            for selector in [
+                (By.CSS_SELECTOR, "button[type='submit']"),
+                (By.XPATH, "//button[contains(text(), 'Login')]"),
+                (By.CSS_SELECTOR, "button.primary"),
+            ]:
+                 try:
+                    submit_btn = self.wait.until(
+                        EC.element_to_be_clickable(selector)
+                    )
+                    break
+                 except TimeoutException:
+                    continue
+            
+            if not submit_btn:
+                raise TimeoutException("Could not find login button")
+
             submit_btn.click()
 
             # Wait for redirect away from login page
-            self.wait.until(lambda d: "/login" not in d.current_url)
+            # This is tricky with SPAs, so we wait for the URL to change or the login form to disappear
+            try:
+                self.wait.until(EC.staleness_of(submit_btn))
+            except TimeoutException:
+                pass
+            
             logger.info("Login successful")
 
         except Exception as e:
             logger.error("Login failed: %s", e)
+            logger.error("Current URL: %s", self.driver.current_url)
+            logger.error("Page Title: %s", self.driver.title)
+            try:
+                self.driver.save_screenshot("login_failure.png")
+                logger.info("Saved screenshot to login_failure.png")
+            except Exception:
+                pass
             raise
 
     def discover_site(
@@ -177,6 +504,7 @@ class UIDiscoveryTool:
         start_url: str | None = None,
         max_depth: int = 3,
         login_first: bool = True,
+        login_url: str | None = None,
     ) -> dict[str, Any]:
         """Crawl the entire UI and return a structured map.
         
@@ -184,16 +512,18 @@ class UIDiscoveryTool:
             start_url: Optional starting URL. If not provided, uses base_url
             max_depth: Maximum crawl depth
             login_first: Whether to login before crawling
+            login_url: Optional custom login URL
             
         Returns:
             Dictionary containing:
                 - base_url: Base URL of the application
                 - pages: List of discovered pages with elements
+                - url_patterns: List of detected URL patterns (if enabled)
                 - navigation_graph: Graph of navigation relationships
         """
         try:
             if login_first:
-                self.login()
+                self.login(login_url=login_url)
                 start_url = start_url or self.driver.current_url
             else:
                 start_url = start_url or self.base_url
@@ -202,9 +532,18 @@ class UIDiscoveryTool:
             logger.info("Starting discovery from %s", start_url)
             self._crawl_page(start_url, depth=0, max_depth=max_depth)
 
+            # Detect URL patterns if enabled
+            url_patterns = []
+            if self.enable_pattern_detection:
+                logger.info("Detecting URL patterns...")
+                detector = URLPatternDetector(min_pattern_count=self.min_pattern_count)
+                url_patterns = detector.detect_patterns(self.pages)
+                logger.info("Detected %d URL patterns", len(url_patterns))
+
             return {
                 "base_url": self.base_url,
                 "pages": self.pages,
+                "url_patterns": url_patterns,
                 "navigation_graph": self.navigation_graph,
             }
 
@@ -273,7 +612,7 @@ class UIDiscoveryTool:
         Returns:
             Dictionary containing page information
         """
-        return {
+        page_info = {
             "url": url,
             "title": self.driver.title,
             "page_type": self._classify_page(url),
@@ -282,6 +621,12 @@ class UIDiscoveryTool:
             "links": self._discover_links(),
             "tables": self._discover_tables(),
         }
+        
+        # Add interaction discovery if enabled
+        if self.enable_interaction_discovery:
+            page_info["interactions"] = self._discover_interactions(url)
+        
+        return page_info
 
     def _classify_page(self, url: str) -> str:
         """Classify the page type based on URL patterns.
@@ -323,6 +668,12 @@ class UIDiscoveryTool:
         links = []
         for link in self.driver.find_elements(By.TAG_NAME, "a"):
             href = link.get_attribute("href")
+            
+            # Debug logging for href type
+            if href and not isinstance(href, str):
+                logger.warning("Found non-string href: %s (type: %s)", href, type(href))
+                continue
+
             if href and self._is_internal_link(href):
                 links.append({
                     "text": link.text.strip() or "(no text)",
@@ -341,6 +692,10 @@ class UIDiscoveryTool:
             True if internal, False otherwise
         """
         if not href:
+            return False
+
+        if not isinstance(href, str):
+            logger.warning("Internal link check received non-string: %s", type(href))
             return False
 
         # Skip javascript: and mailto: links
@@ -446,7 +801,7 @@ class UIDiscoveryTool:
         return element.tag_name
 
     def _normalize_url(self, url: str) -> str:
-        """Normalize URL by removing query parameters and fragments.
+        """Normalize URL by removing query parameters but KEEPING fragments for SPAs.
         
         Args:
             url: URL to normalize
@@ -455,7 +810,280 @@ class UIDiscoveryTool:
             Normalized URL
         """
         parsed = urlparse(url)
-        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        # For SPAs, the fragment is critical. We keep scheme, netloc, path, and fragment.
+        # We strip query params (?) as they often contain session IDs or filters.
+        # We also ensure consistent trailing slash handling.
+        
+        path = parsed.path.rstrip("/")
+        if not path:
+            path = "/"
+            
+        return f"{parsed.scheme}://{parsed.netloc}{path}{'#' + parsed.fragment if parsed.fragment else ''}"
+
+    def _discover_interactions(self, page_url: str) -> list[dict[str, Any]]:
+        """Discover interactive elements by clicking buttons.
+        
+        Args:
+            page_url: Current page URL for state recovery
+            
+        Returns:
+            List of discovered interactions
+        """
+        if not self.enable_interaction_discovery:
+            return []
+        
+        interactions = []
+        buttons = self._find_safe_buttons()
+        
+        logger.info("Discovering interactions: found %d safe buttons to test", len(buttons))
+        
+        for button in buttons:
+            try:
+                # Record initial state
+                initial_url = self.driver.current_url
+                button_text = button.text.strip()
+                
+                logger.debug("Clicking button: %s", button_text)
+                
+                # Click button
+                button.click()
+                time.sleep(self.interaction_timeout)
+                
+                # Check for modal
+                modal = self._detect_modal()
+                if modal:
+                    logger.info("Modal detected after clicking '%s'", button_text)
+                    interaction = {
+                        "trigger": {
+                            "type": "button",
+                            "text": button_text,
+                            "selector": self._get_css_selector(button),
+                        },
+                        "result": modal,
+                    }
+                    interactions.append(interaction)
+                    
+                    # Close modal
+                    self._close_modal()
+                    time.sleep(0.5)
+                
+                # Restore state if URL changed
+                if self.driver.current_url != initial_url:
+                    logger.debug("URL changed, navigating back to %s", page_url)
+                    self.driver.get(page_url)
+                    self.wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+                    
+            except Exception as e:
+                logger.debug("Error clicking button '%s': %s", button.text if hasattr(button, 'text') else 'unknown', e)
+                # Try to recover
+                try:
+                    self.driver.get(page_url)
+                    self.wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+                except:
+                    pass
+        
+        return interactions
+
+    def _find_safe_buttons(self) -> list[WebElement]:
+        """Find buttons that are safe to click.
+        
+        Returns:
+            List of safe button WebElements
+        """
+        all_buttons = self.driver.find_elements(By.TAG_NAME, "button")
+        safe_patterns = [p.strip().lower() for p in self.safe_buttons.split(",")]
+        
+        safe_buttons = []
+        for button in all_buttons:
+            try:
+                if not button.is_displayed() or not button.is_enabled():
+                    continue
+                    
+                button_text = button.text.strip().lower()
+                button_title = (button.get_attribute("title") or "").strip().lower()
+                button_aria = (button.get_attribute("aria-label") or "").strip().lower()
+                
+                # Check if button text/title/aria-label matches safe patterns
+                if any(pattern in button_text or pattern in button_title or pattern in button_aria
+                       for pattern in safe_patterns):
+                    safe_buttons.append(button)
+            except:
+                continue
+        
+        return safe_buttons
+
+    def _detect_modal(self) -> dict[str, Any] | None:
+        """Detect if a modal/dialog is currently visible.
+        
+        Returns:
+            Modal info dict if detected, None otherwise
+        """
+        # Common modal selectors
+        modal_selectors = [
+            ".modal.show",
+            ".modal.in",
+            ".dialog[open]",
+            "[role='dialog']",
+            ".overlay.visible",
+            ".popup.visible",
+            "div[class*='modal'][style*='display: block']",
+        ]
+        
+        for selector in modal_selectors:
+            try:
+                modals = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                for modal in modals:
+                    if modal.is_displayed():
+                        return self._capture_modal_info(modal)
+            except:
+                continue
+        
+        return None
+
+    def _capture_modal_info(self, modal_element: WebElement) -> dict[str, Any]:
+        """Capture information about a modal/dialog.
+        
+        Args:
+            modal_element: WebElement of the modal
+            
+        Returns:
+            Dictionary with modal information
+        """
+        return {
+            "type": "modal",
+            "title": self._get_modal_title(modal_element),
+            "buttons": self._discover_buttons_in_element(modal_element),
+            "inputs": self._discover_inputs_in_element(modal_element),
+            "selects": self._discover_selects_in_element(modal_element),
+            "css_selector": self._get_css_selector(modal_element),
+        }
+
+    def _get_modal_title(self, modal_element: WebElement) -> str:
+        """Extract title from modal element.
+        
+        Args:
+            modal_element: Modal WebElement
+            
+        Returns:
+            Modal title or empty string
+        """
+        title_selectors = [
+            ".modal-title",
+            ".dialog-title",
+            "h1", "h2", "h3",
+            "[class*='title']",
+        ]
+        
+        for selector in title_selectors:
+            try:
+                title_elem = modal_element.find_element(By.CSS_SELECTOR, selector)
+                if title_elem.text.strip():
+                    return title_elem.text.strip()
+            except:
+                continue
+        
+        return ""
+
+    def _discover_buttons_in_element(self, element: WebElement) -> list[dict[str, Any]]:
+        """Discover buttons within a specific element.
+        
+        Args:
+            element: Parent WebElement
+            
+        Returns:
+            List of button dictionaries
+        """
+        buttons = []
+        for btn in element.find_elements(By.TAG_NAME, "button"):
+            try:
+                if btn.is_displayed():
+                    buttons.append({
+                        "text": btn.text.strip(),
+                        "type": btn.get_attribute("type"),
+                        "class": btn.get_attribute("class"),
+                        "css_selector": self._get_css_selector(btn),
+                    })
+            except:
+                continue
+        return buttons
+
+    def _discover_inputs_in_element(self, element: WebElement) -> list[dict[str, Any]]:
+        """Discover input fields within a specific element.
+        
+        Args:
+            element: Parent WebElement
+            
+        Returns:
+            List of input dictionaries
+        """
+        inputs = []
+        for inp in element.find_elements(By.TAG_NAME, "input"):
+            try:
+                if inp.is_displayed():
+                    inputs.append({
+                        "type": inp.get_attribute("type"),
+                        "name": inp.get_attribute("name"),
+                        "placeholder": inp.get_attribute("placeholder"),
+                        "required": inp.get_attribute("required") is not None,
+                        "css_selector": self._get_css_selector(inp),
+                    })
+            except:
+                continue
+        return inputs
+
+    def _discover_selects_in_element(self, element: WebElement) -> list[dict[str, Any]]:
+        """Discover select dropdowns within a specific element.
+        
+        Args:
+            element: Parent WebElement
+            
+        Returns:
+            List of select dictionaries
+        """
+        selects = []
+        for select in element.find_elements(By.TAG_NAME, "select"):
+            try:
+                if select.is_displayed():
+                    options = [opt.text.strip() for opt in select.find_elements(By.TAG_NAME, "option")]
+                    selects.append({
+                        "name": select.get_attribute("name"),
+                        "options": options,
+                        "css_selector": self._get_css_selector(select),
+                    })
+            except:
+                continue
+        return selects
+
+    def _close_modal(self) -> None:
+        """Attempt to close any open modal."""
+        from selenium.webdriver.common.keys import Keys
+        
+        # Try common close methods
+        close_selectors = [
+            "button.close",
+            "[aria-label='Close']",
+            "button:contains('Cancel')",
+            "button:contains('Close')",
+            ".modal-close",
+            ".dialog-close",
+        ]
+        
+        for selector in close_selectors:
+            try:
+                close_btn = self.driver.find_element(By.CSS_SELECTOR, selector)
+                if close_btn.is_displayed():
+                    close_btn.click()
+                    time.sleep(0.3)
+                    return
+            except:
+                continue
+        
+        # Fallback: ESC key
+        try:
+            self.driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+            time.sleep(0.3)
+        except:
+            pass
 
     def close(self) -> None:
         """Close the browser."""
@@ -488,6 +1116,10 @@ def main():
         help="Login password (optional)",
     )
     parser.add_argument(
+        "--login-url",
+        help="Custom login URL (optional)",
+    )
+    parser.add_argument(
         "--max-depth",
         type=int,
         default=3,
@@ -510,6 +1142,33 @@ def main():
         action="store_true",
         help="Skip login step",
     )
+    parser.add_argument(
+        "--disable-pattern-detection",
+        action="store_true",
+        help="Disable URL pattern detection (default: enabled)",
+    )
+    parser.add_argument(
+        "--pattern-min-count",
+        type=int,
+        default=3,
+        help="Minimum URLs required to form a pattern (default: 3)",
+    )
+    parser.add_argument(
+        "--discover-interactions",
+        action="store_true",
+        help="Discover modals and dialogs by clicking buttons (default: disabled)",
+    )
+    parser.add_argument(
+        "--safe-buttons",
+        default="New,Add,Edit,View,Show,Cancel,Close",
+        help="Comma-separated list of safe button text patterns to click (default: New,Add,Edit,View,Show,Cancel,Close)",
+    )
+    parser.add_argument(
+        "--interaction-timeout",
+        type=int,
+        default=2,
+        help="Seconds to wait for modals to appear after clicking (default: 2)",
+    )
 
     args = parser.parse_args()
 
@@ -519,6 +1178,11 @@ def main():
         username=args.username,
         password=args.password,
         headless=args.headless,
+        enable_pattern_detection=not args.disable_pattern_detection,
+        min_pattern_count=args.pattern_min_count,
+        enable_interaction_discovery=args.discover_interactions,
+        safe_buttons=args.safe_buttons,
+        interaction_timeout=args.interaction_timeout,
     )
 
     # Discover site
@@ -526,6 +1190,7 @@ def main():
     ui_map = tool.discover_site(
         max_depth=args.max_depth,
         login_first=not args.no_login,
+        login_url=args.login_url,
     )
 
     # Save to file
