@@ -16,8 +16,8 @@ The `ui_discovery.py` tool crawls a web application to discover its structure, i
 
 ### Core Features
 
-- **🔍 Automatic UI Crawling**: Discovers pages by following links up to configurable depth
-- **🔗 Navigation Graph**: Maps relationships between pages
+- **🔍 Automatic UI Crawling**: Discovers all reachable pages using Breadth-First Search (BFS)
+- **🔗 NetworkX Graph**: Builds a graph representation with pages, modals, forms, and elements as nodes
 - **📊 Element Discovery**: Captures buttons, inputs, links, tables on each page
 - **🏷️ Page Classification**: Automatically classifies page types (home, device_list, etc.)
 - **🔐 Authentication**: Handles login flows for protected applications
@@ -80,7 +80,8 @@ python boardfarm/boardfarm3/lib/gui/ui_discovery.py \
   --username admin \
   --password admin \
   --discover-interactions \
-  --max-depth 3 \
+  --skip-pattern-duplicates \
+  --pattern-sample-size 3 \
   --output ui_map_complete.json \
   --headless
 ```
@@ -118,10 +119,11 @@ python boardfarm/boardfarm3/lib/gui/ui_discovery.py \
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--max-depth` | int | 3 | Maximum crawl depth (0 = home page only) |
 | `--headless` | flag | True | Run browser in headless mode |
 | `--no-headless` | flag | - | Run browser with GUI (for debugging) |
 | `--output` | string | `ui_map.json` | Output file path |
+
+**Note:** The tool uses **Breadth-First Search (BFS)** to crawl all reachable pages automatically. There is no depth limit - crawling continues until all discoverable pages are visited.
 
 ### Pattern Detection Options
 
@@ -294,7 +296,56 @@ python boardfarm/boardfarm3/lib/gui/ui_discovery.py \
 
 ## Output Format
 
-The tool generates a comprehensive JSON file with the following structure:
+The tool generates a **NetworkX graph in node-link JSON format**, which can be loaded by downstream tools (selector_generator.py, navigation_generator.py) or visualized with graph tools.
+
+### Legacy Format Reference
+
+For reference, the previous flat JSON structure looked like this:
+
+### Current Format (NetworkX Graph)
+
+The tool now outputs a **NetworkX node-link format**:
+
+```json
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "id": "http://127.0.0.1:3000/#!/overview",
+      "node_type": "Page",
+      "title": "Overview - GenieACS",
+      "page_type": "home"
+    },
+    {
+      "id": "elem_button_1",
+      "node_type": "Element",
+      "element_type": "button",
+      "text": "Log out",
+      "locator_type": "id",
+      "locator_value": "logout-btn"
+    }
+  ],
+  "links": [
+    {
+      "source": "elem_button_1",
+      "target": "http://127.0.0.1:3000/#!/overview",
+      "edge_type": "ON_PAGE"
+    }
+  ]
+}
+```
+
+**Benefits of Graph Format:**
+- Enables graph algorithms (shortest path, reachability analysis)
+- Supports complex relationships (modals, forms, conditional navigation)
+- Compatible with NetworkX for further analysis
+- Can be exported to GraphML/GEXF for visualization
+
+### Legacy Flat Format (Deprecated)
+
+The old flat structure (no longer generated):
 
 ```json
 {
@@ -375,75 +426,91 @@ The tool generates a comprehensive JSON file with the following structure:
 
 ### View Basic Statistics
 
+**Using Python and UIGraph:**
+```python
+from boardfarm3.lib.gui.ui_graph import UIGraph
+
+# Load the graph
+graph = UIGraph.from_node_link("ui_map.json")
+
+# Get statistics
+stats = graph.get_statistics()
+print(f"Pages: {stats['page_count']}")
+print(f"Modals: {stats['modal_count']}")
+print(f"Elements: {stats['element_count']}")
+print(f"Navigation links: {stats['navigation_count']}")
+
+# List all pages
+for page_id, attrs in graph.get_pages():
+    print(f"{attrs['page_type']}: {page_id}")
+```
+
+**Using jq (for node-link format):**
 ```bash
-# Count total pages discovered
-cat ui_map.json | jq '.pages | length'
+# Count total pages
+cat ui_map.json | jq '[.nodes[] | select(.node_type == "Page")] | length'
 
 # List all page types
-cat ui_map.json | jq '[.pages[].page_type] | unique'
+cat ui_map.json | jq '[.nodes[] | select(.node_type == "Page").page_type] | unique'
 
-# Count buttons per page
-cat ui_map.json | jq '.pages[] | {url, button_count: (.buttons | length)}'
+# Count elements by type
+cat ui_map.json | jq '[.nodes[] | select(.node_type == "Element").element_type] | group_by(.) | map({type: .[0], count: length})'
 ```
 
-### Analyze URL Patterns
+### Analyze Modals and Forms
 
-```bash
-# View all detected patterns
-cat ui_map.json | jq '.url_patterns'
+**Using Python and UIGraph:**
+```python
+# Count modals
+modals = list(graph.get_modals())
+print(f"Total modals: {len(modals)}")
 
-# View pattern details
-cat ui_map.json | jq '.url_patterns[] | {
-  pattern,
-  count,
-  description,
-  parameter: .parameter_name
-}'
-
-# Check common buttons across pattern instances
-cat ui_map.json | jq '.url_patterns[0].page_structure.common_buttons'
+# List modals by page
+for page_id, _ in graph.get_pages():
+    page_modals = list(graph.get_page_modals(page_id))
+    if page_modals:
+        print(f"{page_id}: {len(page_modals)} modals")
 ```
 
-### Analyze Interactions
-
+**Using jq:**
 ```bash
-# Count pages with interactions
-cat ui_map.json | jq '[.pages[] | select(.interactions)] | length'
+# Count modals
+cat ui_map.json | jq '[.nodes[] | select(.node_type == "Modal")] | length'
 
-# View all discovered modals
-cat ui_map.json | jq '.pages[] | select(.interactions) | {
-  url,
-  interactions: [.interactions[] | {
-    trigger: .trigger.text,
-    modal: .result.title,
-    inputs: (.result.inputs | length),
-    buttons: (.result.buttons | length)
-  }]
-}'
+# List all modals with their parent pages
+cat ui_map.json | jq '[.nodes[] | select(.node_type == "Modal") | {title: .title, parent: .parent_page}]'
 
-# List all modal forms
-cat ui_map.json | jq '[
-  .pages[].interactions[]? |
-  select(.result.type == "modal") |
-  {
-    trigger: .trigger.text,
-    modal_title: .result.title,
-    input_fields: [.result.inputs[]?.name]
-  }
-]'
+# Count forms
+cat ui_map.json | jq '[.nodes[] | select(.node_type == "Form")] | length'
 ```
 
-### Analyze Navigation Graph
+### Analyze Navigation Paths
 
+**Using Python and UIGraph:**
+```python
+# Find shortest path between pages
+path = graph.find_shortest_path(
+    "http://127.0.0.1:3000/#!/overview",
+    "http://127.0.0.1:3000/#!/devices/ABC123"
+)
+print(f"Path length: {len(path)} steps")
+
+# Find all paths (up to 5)
+all_paths = graph.find_all_paths(
+    "http://127.0.0.1:3000/#!/overview",
+    "http://127.0.0.1:3000/#!/admin/users",
+    cutoff=5
+)
+print(f"Alternative paths: {len(all_paths)}")
+```
+
+**Using jq:**
 ```bash
-# View pages and their outgoing links
-cat ui_map.json | jq '.navigation_graph | to_entries[] | {
-  page: .key,
-  outgoing_links: (.value.links | length)
-}'
+# Count navigation links
+cat ui_map.json | jq '[.links[] | select(.edge_type == "NAVIGATES_TO")] | length'
 
-# Find pages with most outgoing links (navigation hubs)
-cat ui_map.json | jq '.navigation_graph | to_entries | sort_by(.value.links | length) | reverse | .[0:3]'
+# List pages by connectivity (incoming/outgoing edges)
+cat ui_map.json | jq '[.links[] | .target] | group_by(.) | map({page: .[0], incoming: length}) | sort_by(.incoming) | reverse | .[0:5]'
 ```
 
 ## Testing
@@ -480,7 +547,8 @@ python ../boardfarm/boardfarm3/lib/gui/ui_discovery.py \
   --username admin \
   --password admin \
   --discover-interactions \
-  --max-depth 2 \
+  --skip-pattern-duplicates \
+  --pattern-sample-size 3 \
   --output ui_map_genieacs.json
 
 # Verify output
@@ -490,20 +558,18 @@ cat ui_map_genieacs.json | jq '[.pages[] | select(.interactions)] | length'
 ```
 
 **Expected Results for GenieACS:**
-- 15-20 pages discovered (with `--max-depth 4`)
-- 1 URL pattern: `#!/devices/{device_id}`
+- All reachable pages discovered automatically (BFS traversal)
+- 1 URL pattern detected: `#!/devices/{device_id}` (with 3 samples if using `--skip-pattern-duplicates`)
 - 4-6 pages with interactions (Presets, Provisions, Files, Virtual Parameters)
 - Common buttons: `["Log out", "Reboot", "Reset", "Push file", "Delete"]`
 - Admin sub-pages: users, permissions, config, presets, provisions, virtualparameters
 
-**Important:** Use `--max-depth 4` for GenieACS to discover admin sub-pages.
-
-**Depth Breakdown:**
-- Depth 0: Overview
-- Depth 1: Devices, Faults
-- Depth 2: Device details
-- Depth 3: Admin entry page
-- Depth 4: Admin sub-pages (users, permissions, config, etc.)
+**How BFS Works:**
+The tool starts from the home page and systematically:
+1. Discovers all links on the current page level
+2. Visits each discovered page
+3. Repeats until no new pages are found
+4. Automatically stops when the entire UI is mapped
 
 ## Page Classification
 
@@ -539,10 +605,11 @@ python boardfarm/boardfarm3/lib/gui/selector_generator.py \
   --input ui_map.json \
   --output tests/ui_helpers/acs_selectors.yaml
 
-# Step 3: Generate navigation YAML (coming soon)
+# Step 3: Generate navigation YAML
 python boardfarm/boardfarm3/lib/gui/navigation_generator.py \
   --input ui_map.json \
-  --output tests/ui_helpers/acs_navigation.yaml
+  --output tests/ui_helpers/acs_navigation.yaml \
+  --mode common
 
 # Step 4: Use artifacts in tests
 # The YAML files configure GenieAcsGui component
@@ -565,37 +632,45 @@ python boardfarm/boardfarm3/lib/gui/ui_discovery.py \
   --password admin \
   --output current_ui_map.json
 
-# Step 3: Detect changes (coming soon)
-python boardfarm/boardfarm3/lib/gui/ui_change_detector.py \
-  --baseline baseline_ui_map.json \
-  --current current_ui_map.json \
-  --output changes_report.md
+# Step 3: Compare graphs (using NetworkX)
+python -c "
+from boardfarm3.lib.gui.ui_graph import UIGraph
+baseline = UIGraph.from_node_link('baseline_ui_map.json')
+current = UIGraph.from_node_link('current_ui_map.json')
+
+baseline_stats = baseline.get_statistics()
+current_stats = current.get_statistics()
+
+print('Page count change:', current_stats['page_count'] - baseline_stats['page_count'])
+print('Element count change:', current_stats['element_count'] - baseline_stats['element_count'])
+"
 ```
 
 ## Performance Considerations
 
-### Crawl Depth Impact
+### Crawl Time Factors
 
-| Max Depth | Typical Pages | Time (headless) | Use Case |
-|-----------|---------------|-----------------|----------|
-| 0 | 1 (home only) | ~10s | Quick validation |
-| 1 | 5-10 | ~30s | Main navigation |
-| 2 | 10-20 | 1-2 min | Comprehensive |
-| 3 (default) | 20-50 | 3-5 min | Full coverage |
+| Factor | Impact | Typical Time |
+|--------|--------|--------------|
+| **Page Count** | Linear | ~2-5s per page (headless) |
+| **Pattern Skipping** | Massive reduction | 99%+ time savings |
+| **Interaction Discovery** | 1.5-2x multiplier | +5-10s per page with buttons |
+| **Application Size** | Variable | Small: 1-2 min, Medium: 3-5 min, Large: 10+ min (without pattern skipping) |
 
-### Interaction Discovery Impact
+### BFS Traversal Characteristics
 
-- Adds ~5-10 seconds per page with buttons
-- Multiplies crawl time by ~1.5-2x
-- Recommended for periodic runs, not every test
+- **Systematic**: Discovers all reachable pages level-by-level
+- **Complete**: Automatically finds all linked pages
+- **Natural termination**: Stops when no new pages are found
+- **Predictable**: Page count depends on application structure, not arbitrary depth limits
 
 ### Optimization Tips
 
-1. **Use shallow depth** for quick checks: `--max-depth 1`
-2. **Skip interaction discovery** for basic structure mapping
+1. **Use pattern skipping** for production systems: `--skip-pattern-duplicates --pattern-sample-size 3` (reduces crawl time by 99%+)
+2. **Skip interaction discovery** for basic structure mapping (save for periodic comprehensive scans)
 3. **Use headless mode** (default) for faster execution
 4. **Increase timeout** for slow-loading pages: `--interaction-timeout 3`
-5. **Limit patterns** with higher threshold: `--pattern-min-count 5`
+5. **Adjust pattern threshold** for your needs: `--pattern-min-count 5` (higher = fewer patterns detected)
 
 ## Troubleshooting
 
@@ -624,9 +699,10 @@ sudo snap install geckodriver
 - Use `--no-headless` to debug modal appearance
 
 **Missing pages:**
-- Increase `--max-depth` to crawl deeper
-- Check if pages require specific navigation sequence
-- Verify links are standard `<a>` tags (not JavaScript handlers)
+- BFS automatically discovers all reachable pages - if a page is missing, it's not linked
+- Check if pages require specific navigation sequence (e.g., form submission)
+- Verify links are standard `<a>` tags (not JavaScript handlers without href)
+- Confirm pages aren't behind permission checks or conditional UI
 
 **Stale Element Reference Exceptions:**
 - These are common in Single Page Applications (SPAs) where the DOM updates dynamically
@@ -636,7 +712,7 @@ sudo snap install geckodriver
   - Adding a 0.5s stabilization wait after navigation
 - Most stale element errors are logged at DEBUG level and don't affect the crawl
 - If you see frequent stale element errors, your SPA may need longer to stabilize:
-  - Try reducing `--max-depth` to minimize navigation
+  - Use `--skip-pattern-duplicates` to limit crawling of similar pages
   - Consider running discovery during periods of low server activity
   - Check that the application is not continuously polling/updating
 
@@ -662,13 +738,13 @@ python boardfarm/boardfarm3/lib/gui/ui_discovery.py \
 
 ## Best Practices
 
-1. **Start shallow**: Begin with `--max-depth 1` to understand structure
-2. **Test login separately**: Use `--no-headless` to verify authentication
+1. **Test login first**: Use `--no-headless` to verify authentication works before full crawl
+2. **Use pattern skipping for production**: Enable `--skip-pattern-duplicates --pattern-sample-size 3` to avoid crawling thousands of similar pages
 3. **Periodic full scans**: Run comprehensive scans weekly or on major releases
-4. **Version control outputs**: Commit UI maps for change tracking
-5. **Review patterns**: Verify detected patterns make sense for your app
-6. **Customize safe buttons**: Add application-specific safe button patterns
-7. **Balance coverage vs. time**: Use `--max-depth 2` for most applications
+4. **Version control outputs**: Commit UI maps for change tracking (use NetworkX node-link format)
+5. **Review patterns**: Verify detected patterns make sense for your app structure
+6. **Customize safe buttons**: Add application-specific safe button patterns for interaction discovery
+7. **Optimize interaction discovery**: Run without `--discover-interactions` for quick structural scans, enable for comprehensive periodic scans
 8. **SPAs require special handling**: For Single Page Applications:
    - The tool automatically waits 0.5s for DOM stabilization after navigation
    - Stale element exceptions are handled gracefully (logged at DEBUG level)
@@ -678,6 +754,7 @@ python boardfarm/boardfarm3/lib/gui/ui_discovery.py \
    - Unnecessary crawling of error/empty pages
    - Long timeouts on non-responsive entities
    - Skewed pattern detection
+10. **Let BFS complete**: The BFS algorithm naturally discovers all reachable pages - don't interrupt unless crawl time is excessive
 
 ## Limitations
 
@@ -725,16 +802,15 @@ python ui_discovery.py \
   --username admin \
   --password admin \
   --skip-pattern-duplicates \
-  --pattern-sample-size 3 \
-  --max-depth 2
+  --pattern-sample-size 3
 ```
 
 ## Related Tools
 
-- **selector_generator.py**: Converts UI map to `selectors.yaml`
-- **navigation_generator.py**: Converts UI map to `navigation.yaml` (coming soon)
-- **ui_change_detector.py**: Compares UI maps for changes (coming soon)
-- **BaseGuiComponent**: Consumes generated YAML artifacts
+- **selector_generator.py**: Converts NetworkX graph to `selectors.yaml` ✅ Implemented
+- **navigation_generator.py**: Converts NetworkX graph to `navigation.yaml` ✅ Implemented
+- **ui_graph.py**: NetworkX wrapper for graph operations ✅ Implemented
+- **BaseGuiComponent**: Consumes generated YAML artifacts in device implementations
 
 ## Support
 
