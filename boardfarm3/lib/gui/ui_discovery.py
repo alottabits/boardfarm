@@ -855,7 +855,7 @@ class UIDiscoveryTool:
         """Find all internal navigation links on current page.
         
         Adds link elements to graph, creates navigation edges, and returns
-        list of new URLs to explore (leaves).
+        list of new URLs to explore (leaves). Handles both HTML and SVG links.
         
         Args:
             current_page_url: Current page URL
@@ -874,18 +874,29 @@ class UIDiscoveryTool:
                 css_selector = self._get_css_selector(link)
                 is_visible = link.is_displayed()
                 
-                # Debug logging for href type
+                # Handle SVG href (returns dict with baseVal/animVal)
+                is_svg_link = False
+                if href and isinstance(href, dict):
+                    # SVG elements return href as {'baseVal': '...', 'animVal': '...'}
+                    href = href.get('baseVal') or href.get('animVal')
+                    is_svg_link = True
+                    logger.info("Extracted href from SVG element: %s", href)
+                
+                # Validate href is now a string
                 if href and not isinstance(href, str):
-                    logger.warning("Found non-string href: %s (type: %s)", href, type(href))
+                    logger.warning("Found non-string href after extraction: %s (type: %s)", href, type(href))
                     continue
 
                 if href and self._is_internal_link(href):
                     normalized_href = self._normalize_url(href)
                     
+                    # Determine element type (svg_link for SVG elements, link for HTML)
+                    element_type = "svg_link" if is_svg_link else "link"
+                    
                     # Add link element to graph
                     link_elem_id = self.graph.add_element(
                         current_page_url,
-                        "link",
+                        element_type,
                         "css",
                         css_selector,
                         text=text,
