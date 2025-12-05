@@ -890,6 +890,10 @@ class UIDiscoveryTool:
                 if href and self._is_internal_link(href):
                     normalized_href = self._normalize_url(href)
                     
+                    # Debug logging for SVG links
+                    if is_svg_link:
+                        logger.info("SVG link passed internal check, normalized to: %s", normalized_href)
+                    
                     # Determine element type (svg_link for SVG elements, link for HTML)
                     element_type = "svg_link" if is_svg_link else "link"
                     
@@ -903,6 +907,10 @@ class UIDiscoveryTool:
                         href=normalized_href,
                         visibility_observed="visible" if is_visible else "hidden"
                     )
+                    
+                    # Debug logging for SVG links
+                    if is_svg_link:
+                        logger.info("SVG link added to graph with ID: %s", link_elem_id)
                     
                     # Add navigation relationship
                     self.graph.add_navigation_link(
@@ -943,7 +951,13 @@ class UIDiscoveryTool:
             return False
 
         # Skip javascript: and mailto: links
-        if href.startswith(("javascript:", "mailto:", "#")):
+        if href.startswith(("javascript:", "mailto:")):
+            return False
+        
+        # Skip simple anchor links but allow hash-based routing
+        # Hash-based routing typically contains path separators (e.g., #!/devices, #/devices)
+        # Simple anchors don't (e.g., #section, #top)
+        if href.startswith("#") and "/" not in href:
             return False
 
         # Skip API endpoints and download files
@@ -1091,6 +1105,7 @@ class UIDiscoveryTool:
         
         Query parameters are stripped from both the main URL and the fragment
         to ensure consistent page identity (e.g., #!/devices?filter=X -> #!/devices).
+        Handles fragment-only URLs by prepending base URL components.
         
         Args:
             url: URL to normalize
@@ -1099,6 +1114,15 @@ class UIDiscoveryTool:
             Normalized URL without query parameters
         """
         parsed = urlparse(url)
+        
+        # Handle fragment-only URLs (e.g., #!/devices) by using base URL components
+        if not parsed.scheme or not parsed.netloc:
+            base_parsed = urlparse(self.base_url)
+            scheme = parsed.scheme or base_parsed.scheme
+            netloc = parsed.netloc or base_parsed.netloc
+        else:
+            scheme = parsed.scheme
+            netloc = parsed.netloc
         
         # For SPAs, the fragment is critical. We need to handle query params in fragments.
         fragment = parsed.fragment
@@ -1111,7 +1135,7 @@ class UIDiscoveryTool:
         if not path:
             path = "/"
             
-        return f"{parsed.scheme}://{parsed.netloc}{path}{'#' + fragment if fragment else ''}"
+        return f"{scheme}://{netloc}{path}{'#' + fragment if fragment else ''}"
     
     def _parse_query_string(self, url: str) -> dict[str, str]:
         """Parse query parameters from URL.
