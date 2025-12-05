@@ -798,6 +798,9 @@ class UIDiscoveryTool:
     def _classify_page(self, url: str) -> str:
         """Classify the page type based on URL patterns.
         
+        Strips query parameters before classification to ensure consistent
+        page types (e.g., #!/devices?filter=X -> device_list, not device_details).
+        
         Args:
             url: URL to classify
             
@@ -807,6 +810,10 @@ class UIDiscoveryTool:
         parsed = urlparse(url)
         # For hash-based SPAs, use the fragment; otherwise use path
         path = (parsed.fragment if parsed.fragment else parsed.path).lower()
+        
+        # Strip query parameters from path/fragment before classification
+        if '?' in path:
+            path = path.split('?')[0]
         
         # Strip leading ! from hash fragments (e.g., #!/devices -> /devices)
         if path.startswith("!"):
@@ -1071,33 +1078,93 @@ class UIDiscoveryTool:
     def _normalize_url(self, url: str) -> str:
         """Normalize URL by removing query parameters but KEEPING fragments for SPAs.
         
+        Query parameters are stripped from both the main URL and the fragment
+        to ensure consistent page identity (e.g., #!/devices?filter=X -> #!/devices).
+        
         Args:
             url: URL to normalize
             
         Returns:
-            Normalized URL
+            Normalized URL without query parameters
         """
         parsed = urlparse(url)
-        # For SPAs, the fragment is critical. We keep scheme, netloc, path, and fragment.
-        # We strip query params (?) as they often contain session IDs or filters.
-        # We also ensure consistent trailing slash handling.
         
+        # For SPAs, the fragment is critical. We need to handle query params in fragments.
+        fragment = parsed.fragment
+        if fragment and '?' in fragment:
+            # Strip query params from fragment (e.g., #!/devices?filter=X -> #!/devices)
+            fragment = fragment.split('?')[0]
+        
+        # Strip query params from path and ensure consistent trailing slash handling
         path = parsed.path.rstrip("/")
         if not path:
             path = "/"
             
-        return f"{parsed.scheme}://{parsed.netloc}{path}{'#' + parsed.fragment if parsed.fragment else ''}"
-
-    def _get_url_structure(self, url: str) -> str:
-        """Extract URL structure for pattern matching.
+        return f"{parsed.scheme}://{parsed.netloc}{path}{'#' + fragment if fragment else ''}"
+    
+    def _parse_query_string(self, url: str) -> dict[str, str]:
+        """Parse query parameters from URL.
         
-        Similar to URLPatternDetector logic but for online detection.
+        Handles query params in both standard URLs and SPA fragments.
+        
+        Args:
+            url: URL to parse
+            
+        Returns:
+            Dictionary of query parameters
+        """
+        from urllib.parse import parse_qs
+        
+        parsed = urlparse(url)
+        query_params = {}
+        
+        # Check for query params in standard URL
+        if parsed.query:
+            params = parse_qs(parsed.query)
+            # Flatten single-value lists
+            query_params.update({k: v[0] if len(v) == 1 else v for k, v in params.items()})
+        
+        # Check for query params in fragment (for SPAs)
+        if parsed.fragment and '?' in parsed.fragment:
+            fragment_query = parsed.fragment.split('?', 1)[1]
+            params = parse_qs(fragment_query)
+            # Flatten single-value lists
+            query_params.update({k: v[0] if len(v) == 1 else v for k, v in params.items()})
+        
+        return query_params
+    
+    def _extract_query_pattern(self, url: str) -> str | None:
+        """Extract query string pattern from URL.
+        
+        Identifies patterns like ?filter={variable} or ?tab={variable}.
         
         Args:
             url: URL to analyze
             
         Returns:
-            URL structure string (e.g., "#!/devices/{id}")
+            Query pattern string or None if no query params
+        """
+        query_params = self._parse_query_string(url)
+        
+        if not query_params:
+            return None
+        
+        # Create pattern by replacing values with {key} placeholders
+        # e.g., {"filter": "Events.Inform > NOW()"} -> "filter={filter}"
+        pattern_parts = [f"{key}={{{key}}}" for key in sorted(query_params.keys())]
+        return "?" + "&".join(pattern_parts)
+
+    def _get_url_structure(self, url: str) -> str:
+        """Extract URL structure for pattern matching.
+        
+        Handles both path-based patterns (e.g., #!/devices/{id}) and
+        query-based patterns (e.g., #!/devices?filter={filter}).
+        
+        Args:
+            url: URL to analyze
+            
+        Returns:
+            URL structure string
         """
         parsed = urlparse(url)
         
@@ -1108,7 +1175,19 @@ class UIDiscoveryTool:
         if path.startswith("!"):
             path = path[1:]
         
-        # Split path into segments
+        # Check for query parameters in the path/fragment
+        if '?' in path:
+            # Split base path and query
+            base_path = path.split('?')[0]
+            # Get query pattern
+            query_pattern = self._extract_query_pattern(url)
+            
+            # Return combined pattern: base_path + query_pattern
+            if query_pattern:
+                return base_path + query_pattern
+            return base_path
+        
+        # Split path into segments for path-based patterns
         segments = [s for s in path.split("/") if s]
         
         # If we have multiple segments, the last one might be a variable ID

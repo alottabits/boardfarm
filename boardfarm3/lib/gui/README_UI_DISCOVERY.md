@@ -144,7 +144,7 @@ python boardfarm/boardfarm3/lib/gui/ui_discovery.py \
 
 ## URL Pattern Recognition
 
-The tool automatically detects repetitive URL patterns where multiple pages share the same structure but differ in specific segments (typically IDs).
+The tool automatically detects repetitive URL patterns where multiple pages share the same structure but differ in specific segments (typically IDs or query parameters).
 
 ### How It Works
 
@@ -152,8 +152,9 @@ The tool automatically detects repetitive URL patterns where multiple pages shar
 2. Identifies variable segments (usually IDs or identifiers)
 3. Generates parameterized templates
 4. Extracts common page structure from instances
+5. **NEW**: Detects query string patterns (e.g., `?filter={variable}`)
 
-### Example
+### Path-Based Patterns
 
 **Input URLs:**
 ```
@@ -177,12 +178,33 @@ http://127.0.0.1:3000/#!/devices/GHI789
 }
 ```
 
+### Query String Patterns (NEW!)
+
+**Input URLs:**
+```
+http://127.0.0.1:3000/#!/devices?filter=Events.Inform > NOW() - 300000
+http://127.0.0.1:3000/#!/devices?filter=Events.Inform < NOW() - 86700000
+http://127.0.0.1:3000/#!/devices?filter=Events.Inform > NOW() - 86700000 AND Events.Inform < NOW() - 300000
+```
+
+**Detected Pattern:**
+```
+/devices?filter={filter}
+```
+
+**Key Behavior:**
+- All filtered URLs are **normalized to the base page** (`#!/devices`)
+- Query parameters are **stripped from page identity**
+- Pattern detection groups them as: `/devices?filter={filter}`
+- Page type classification uses base path (e.g., `device_list`, not `device_details`)
+
 ### Benefits
 
 - **Reduces redundancy** in UI maps (15 device pages → 1 pattern)
 - **Identifies parameterized routes** for dynamic testing
 - **Preserves examples** for reference (up to 5 URLs)
 - **Extracts common structure** for template generation
+- **NEW**: Eliminates duplicate filtered page nodes (3 filtered views → 1 base page)
 
 ### Configuration
 
@@ -573,19 +595,32 @@ The tool starts from the home page and systematically:
 
 ## Page Classification
 
-The tool automatically classifies pages based on URL patterns:
+The tool automatically classifies pages based on URL patterns. **Query parameters are stripped before classification** to ensure consistent page types.
 
-| Pattern | Classification |
-|---------|----------------|
-| `/login` | `login` |
-| `/devices/ID` | `device_details` |
-| `/devices` | `device_list` |
-| `/tasks` | `tasks` |
-| `/files` | `files` |
-| `/presets` | `presets` |
-| `/admin` | `admin` |
-| `/` or empty | `home` |
-| Other | `unknown` |
+| Pattern | Classification | Notes |
+|---------|----------------|-------|
+| `/login` | `login` | |
+| `/devices/ID` | `device_details` | Individual device page |
+| `/devices` | `device_list` | Device listing page |
+| `/devices?filter=X` | `device_list` | **Filtered list (query params stripped)** |
+| `/tasks` | `tasks` | |
+| `/files` | `files` | |
+| `/presets` | `presets` | |
+| `/admin` | `admin` | |
+| `/` or empty | `home` | |
+| Other | `unknown` | |
+
+### Query String Handling
+
+**Key Behavior:**
+- Query parameters are **automatically stripped** from URLs before page type classification
+- This ensures filtered views are classified the same as unfiltered views
+- Example: `#!/devices?filter=Events.Inform > NOW()` → classified as `device_list` (not `device_details`)
+
+**Benefits:**
+- Prevents duplicate page nodes for filtered views
+- Maintains consistent page type across query variations
+- Reduces graph complexity (e.g., 20 pages → 15 pages for GenieACS)
 
 ## Integration Workflow
 
