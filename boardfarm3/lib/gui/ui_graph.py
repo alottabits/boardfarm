@@ -658,7 +658,7 @@ class UIGraph:
             ...     data = json.load(f)
             >>> G = nx.node_link_graph(data["graph"])
         """
-        return nx.node_link_data(self.G)
+        return nx.node_link_data(self.G, edges="edges")
     
     def export_graphml(self, filepath: str):
         """Export graph as GraphML format for visualization tools.
