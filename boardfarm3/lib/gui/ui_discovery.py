@@ -12,16 +12,19 @@ import argparse
 import json
 import logging
 import time
+from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
 
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
 from selenium.webdriver import Firefox
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+
+from boardfarm3.lib.gui.ui_graph import UIGraph
 
 if TYPE_CHECKING:
     from selenium.webdriver.remote.webelement import WebElement
@@ -281,15 +284,16 @@ class URLPatternDetector:
 
 
 class UIDiscoveryTool:
-    """A generic tool to crawl a web UI and discover its structure.
+    """Web UI crawler with NetworkX graph representation and BFS traversal.
     
-    This tool navigates through a web application, discovering pages,
-    elements, and navigation paths. It generates a comprehensive map
-    of the UI structure that can be used for:
+    This tool navigates through a web application using breadth-first search,
+    discovering pages, modals, forms, and elements. It builds a NetworkX
+    graph that can be used for:
     - Automated test generation
-    - Navigation path analysis
+    - Navigation path analysis (shortest path, all paths)
     - UI change detection
     - Selector extraction
+    - Quality checks (orphaned elements, dead-end pages)
     
     Attributes:
         base_url: Base URL of the application
@@ -297,9 +301,10 @@ class UIDiscoveryTool:
         password: Login password (optional)
         driver: Selenium WebDriver instance
         wait: WebDriverWait instance
+        graph: UIGraph instance (NetworkX-based)
         visited_urls: Set of already visited URLs
-        navigation_graph: Graph of navigation relationships
-        pages: List of discovered page information
+        frontier: BFS queue of URLs to visit
+        current_level: Current BFS level
     """
 
     def __init__(
@@ -314,6 +319,8 @@ class UIDiscoveryTool:
         enable_interaction_discovery: bool = False,
         safe_buttons: str = "New,Add,Edit,View,Show,Cancel,Close",
         interaction_timeout: int = 2,
+        skip_pattern_duplicates: bool = False,
+        pattern_sample_size: int = 3,
     ):
         """Initialize the UI Discovery Tool.
         
@@ -328,6 +335,8 @@ class UIDiscoveryTool:
             enable_interaction_discovery: Enable button click and modal discovery
             safe_buttons: Comma-separated list of safe button text patterns
             interaction_timeout: Seconds to wait for modals after clicking
+            skip_pattern_duplicates: Skip URLs matching detected patterns after sampling
+            pattern_sample_size: Number of pattern instances to crawl before skipping
         """
         self.base_url = base_url.rstrip("/")
         self.username = username
@@ -337,6 +346,8 @@ class UIDiscoveryTool:
         self.enable_interaction_discovery = enable_interaction_discovery
         self.safe_buttons = safe_buttons
         self.interaction_timeout = interaction_timeout
+        self.skip_pattern_duplicates = skip_pattern_duplicates
+        self.pattern_sample_size = pattern_sample_size
 
         # Setup Firefox driver
         options = Options()
@@ -371,10 +382,19 @@ class UIDiscoveryTool:
 
         self.wait = WebDriverWait(self.driver, timeout)
 
-        # Discovery state
+        # NetworkX graph for UI structure
+        self.graph = UIGraph()
+        
+        # BFS crawl state
         self.visited_urls: set[str] = set()
-        self.navigation_graph: dict[str, Any] = {}
-        self.pages: list[dict[str, Any]] = []
+        self.frontier: deque[str] = deque()  # BFS queue
+        self.current_level: int = 0
+        self.max_pages: int = 1000  # Safety limit
+        
+        # Pattern-based skipping state
+        self.pattern_tracker: dict[str, list[str]] = {}  # structure -> [urls]
+        self.detected_patterns: set[str] = set()  # Patterns we're skipping
+        self.skipped_urls: list[dict[str, str]] = []  # Track skipped URLs for stats
 
     def login(self, login_url: str | None = None) -> None:
         """Login to the application.
@@ -502,26 +522,30 @@ class UIDiscoveryTool:
     def discover_site(
         self,
         start_url: str | None = None,
-        max_depth: int = 3,
         login_first: bool = True,
         login_url: str | None = None,
     ) -> dict[str, Any]:
-        """Crawl the entire UI and return a structured map.
+        """Crawl the UI using breadth-first search with leaf tracking.
+        
+        Uses BFS to systematically discover all reachable pages level by level.
+        Natural stopping condition: no new leaves found.
         
         Args:
             start_url: Optional starting URL. If not provided, uses base_url
-            max_depth: Maximum crawl depth
             login_first: Whether to login before crawling
             login_url: Optional custom login URL
             
         Returns:
             Dictionary containing:
                 - base_url: Base URL of the application
-                - pages: List of discovered pages with elements
-                - url_patterns: List of detected URL patterns (if enabled)
-                - navigation_graph: Graph of navigation relationships
+                - discovery_method: "breadth_first_search"
+                - levels_explored: Number of BFS levels
+                - graph: NetworkX graph in node-link format
+                - statistics: Graph statistics
+                - discovery_stats: Crawl statistics
         """
         try:
+            # Login if needed
             if login_first:
                 self.login(login_url=login_url)
                 start_url = start_url or self.driver.current_url
@@ -529,104 +553,247 @@ class UIDiscoveryTool:
                 start_url = start_url or self.base_url
                 self.driver.get(start_url)
 
-            logger.info("Starting discovery from %s", start_url)
-            self._crawl_page(start_url, depth=0, max_depth=max_depth)
+            logger.info("Starting BFS discovery from %s", start_url)
+            
+            # Initialize frontier with start URL
+            self.frontier.append(start_url)
+            
+            # BFS crawl with leaf tracking
+            while self.frontier and len(self.visited_urls) < self.max_pages:
+                # Process entire level
+                level_size = len(self.frontier)
+                logger.info(
+                    "Level %d: Processing %d pages", 
+                    self.current_level, 
+                    level_size
+                )
+                
+                new_leaves = []
+                
+                for _ in range(level_size):
+                    if not self.frontier:
+                        break
+                    
+                    url = self.frontier.popleft()
+                    
+                    # Skip if already visited
+                    normalized_url = self._normalize_url(url)
+                    if normalized_url in self.visited_urls:
+                        continue
+                    
+                    # Crawl the page and get new leaves
+                    leaves = self._discover_page(normalized_url)
+                    new_leaves.extend(leaves)
+                
+                # Add new leaves to frontier for next level
+                self.frontier.extend(new_leaves)
+                self.current_level += 1
+                
+                logger.info(
+                    "Level %d complete: Discovered %d new pages", 
+                    self.current_level - 1,
+                    len(new_leaves)
+                )
+            
+            # Check if we hit the safety limit
+            if len(self.visited_urls) >= self.max_pages:
+                logger.warning(
+                    "Reached max_pages limit (%d). Discovery may be incomplete.",
+                    self.max_pages
+                )
+            
+            logger.info(
+                "BFS discovery complete: %d pages discovered across %d levels",
+                len(self.visited_urls),
+                self.current_level
+            )
 
-            # Detect URL patterns if enabled
-            url_patterns = []
-            if self.enable_pattern_detection:
-                logger.info("Detecting URL patterns...")
-                detector = URLPatternDetector(min_pattern_count=self.min_pattern_count)
-                url_patterns = detector.detect_patterns(self.pages)
-                logger.info("Detected %d URL patterns", len(url_patterns))
+            # Compile discovery statistics
+            discovery_stats = {
+                "pages_crawled": len(self.visited_urls),
+                "pages_skipped": len(self.skipped_urls),
+                "patterns_detected_during_crawl": len(self.detected_patterns),
+                "pattern_skipping_enabled": self.skip_pattern_duplicates,
+                "pattern_sample_size": self.pattern_sample_size if self.skip_pattern_duplicates else None,
+                "levels_explored": self.current_level,
+            }
+            
+            # Add skipped URLs details if any
+            if self.skipped_urls:
+                discovery_stats["skipped_urls"] = self.skipped_urls
 
+            # Export graph data
             return {
                 "base_url": self.base_url,
-                "pages": self.pages,
-                "url_patterns": url_patterns,
-                "navigation_graph": self.navigation_graph,
+                "discovery_method": "breadth_first_search",
+                "levels_explored": self.current_level,
+                "graph": self.graph.export_node_link(),
+                "statistics": self.graph.get_statistics(),
+                "discovery_stats": discovery_stats,
             }
 
         finally:
             self.close()
 
-    def _crawl_page(self, url: str, depth: int, max_depth: int) -> None:
-        """Recursively crawl pages to discover navigation paths.
+    def _discover_page(self, url: str) -> list[str]:
+        """Discover a single page and return new leaves.
+        
+        Populates the graph with page, elements, and navigation edges.
+        Returns list of newly discovered URLs (leaves) for BFS.
         
         Args:
-            url: URL to crawl
-            depth: Current crawl depth
-            max_depth: Maximum depth to crawl
+            url: URL to discover (already normalized)
+            
+        Returns:
+            List of new URLs to add to frontier (leaves)
         """
-        if depth > max_depth:
-            logger.debug("Max depth reached, skipping %s", url)
-            return
+        # Check if we should skip this URL based on pattern matching
+        should_skip, skip_reason = self._should_skip_url(url)
+        if should_skip:
+            logger.info("Skipping %s: %s", url, skip_reason)
+            return []
 
-        # Normalize URL
-        normalized_url = self._normalize_url(url)
-
-        if normalized_url in self.visited_urls:
-            logger.debug("Already visited %s", normalized_url)
-            return
-
-        logger.info("Crawling: %s (depth: %d)", normalized_url, depth)
-        self.visited_urls.add(normalized_url)
+        logger.info("Discovering: %s", url)
 
         try:
+            # Navigate to page
             self.driver.get(url)
             self.wait.until(
                 lambda d: d.execute_script("return document.readyState") == "complete"
             )
+            
+            # Additional wait for SPAs to settle after navigation
+            time.sleep(0.5)
 
-            # Discover page elements
-            page_info = self._discover_page_info(normalized_url)
-            self.pages.append(page_info)
-
-            # Find all navigation links
-            links = self._find_navigation_links()
-
-            # Store navigation graph
-            self.navigation_graph[normalized_url] = {
-                "title": page_info["title"],
-                "page_type": page_info["page_type"],
-                "links": [
-                    {"href": link["href"], "text": link["text"], "selector": link["css_selector"]}
-                    for link in links
-                ],
-            }
-
-            # Recursively crawl linked pages
-            for link in links:
-                if self._is_internal_link(link["href"]):
-                    self._crawl_page(link["href"], depth + 1, max_depth)
-
+            # Add page to graph
+            page_type = self._classify_page(url)
+            self.graph.add_page(
+                url=url,
+                title=self.driver.title,
+                page_type=page_type
+            )
+            
+            # Discover elements and add to graph
+            self._discover_elements(url)
+            
+            # Discover interactions if enabled (creates modal nodes)
+            if self.enable_interaction_discovery:
+                self._discover_interactions(url)
+                # Extra stabilization after interactions
+                time.sleep(1.0)
+            
+            # Find all navigation links and add to graph
+            leaves = self._find_links(url)
+            
+            # Mark as visited only after successful discovery
+            self.visited_urls.add(url)
+            
+            # Track this successful crawl for pattern detection
+            self._track_successful_crawl(url)
+            
+            return leaves
+            
         except Exception as e:
-            logger.error("Error crawling %s: %s", url, e)
+            logger.error("Error discovering %s: %s", url, e)
+            logger.debug("Failed page will not be marked as visited, allowing potential retry")
+            # Don't add to visited_urls so it can be retried if encountered again
+            return []
 
-    def _discover_page_info(self, url: str) -> dict[str, Any]:
-        """Discover information about the current page.
+    def _discover_elements(self, page_url: str):
+        """Discover and add all elements on current page to graph.
+        
+        Discovers buttons, inputs, and tables, adding them to the graph
+        with visibility tracking.
         
         Args:
-            url: URL of the current page
-            
-        Returns:
-            Dictionary containing page information
+            page_url: URL of the current page
         """
-        page_info = {
-            "url": url,
-            "title": self.driver.title,
-            "page_type": self._classify_page(url),
-            "buttons": self._discover_buttons(),
-            "inputs": self._discover_inputs(),
-            "links": self._discover_links(),
-            "tables": self._discover_tables(),
-        }
+        # Discover buttons
+        button_elements = self.driver.find_elements(By.TAG_NAME, "button")
+        for i, btn in enumerate(button_elements):
+            try:
+                # Extract attributes immediately to avoid stale element issues
+                text = btn.text.strip()
+                title = btn.get_attribute("title")
+                btn_id = btn.get_attribute("id")
+                btn_class = btn.get_attribute("class")
+                btn_type = btn.get_attribute("type")
+                css_selector = self._get_css_selector(btn)
+                is_visible = btn.is_displayed()
+                
+                self.graph.add_element(
+                    page_url,
+                    "button",
+                    "css",
+                    css_selector,
+                    text=text,
+                    title=title,
+                    button_id=btn_id,
+                    button_class=btn_class,
+                    button_type=btn_type,
+                    visibility_observed="visible" if is_visible else "hidden"
+                )
+            except StaleElementReferenceException:
+                logger.debug("Skipping stale button element %d", i)
+                continue
+            except Exception as e:
+                logger.debug("Error processing button element %d: %s", i, e)
+                continue
         
-        # Add interaction discovery if enabled
-        if self.enable_interaction_discovery:
-            page_info["interactions"] = self._discover_interactions(url)
+        # Discover inputs
+        input_elements = self.driver.find_elements(By.TAG_NAME, "input")
+        for i, inp in enumerate(input_elements):
+            try:
+                # Extract attributes immediately to avoid stale element issues
+                input_type = inp.get_attribute("type")
+                name = inp.get_attribute("name")
+                inp_id = inp.get_attribute("id")
+                placeholder = inp.get_attribute("placeholder")
+                css_selector = self._get_css_selector(inp)
+                is_visible = inp.is_displayed()
+                
+                self.graph.add_element(
+                    page_url,
+                    "input",
+                    "css",
+                    css_selector,
+                    input_type=input_type,
+                    name=name,
+                    input_id=inp_id,
+                    placeholder=placeholder,
+                    visibility_observed="visible" if is_visible else "hidden"
+                )
+            except StaleElementReferenceException:
+                logger.debug("Skipping stale input element %d", i)
+                continue
+            except Exception as e:
+                logger.debug("Error processing input element %d: %s", i, e)
+                continue
         
-        return page_info
+        # Discover select elements
+        select_elements = self.driver.find_elements(By.TAG_NAME, "select")
+        for i, sel in enumerate(select_elements):
+            try:
+                name = sel.get_attribute("name")
+                sel_id = sel.get_attribute("id")
+                css_selector = self._get_css_selector(sel)
+                is_visible = sel.is_displayed()
+                
+                self.graph.add_element(
+                    page_url,
+                    "select",
+                    "css",
+                    css_selector,
+                    name=name,
+                    select_id=sel_id,
+                    visibility_observed="visible" if is_visible else "hidden"
+                )
+            except StaleElementReferenceException:
+                logger.debug("Skipping stale select element %d", i)
+                continue
+            except Exception as e:
+                logger.debug("Error processing select element %d: %s", i, e)
+                continue
 
     def _classify_page(self, url: str) -> str:
         """Classify the page type based on URL patterns.
@@ -637,7 +804,13 @@ class UIDiscoveryTool:
         Returns:
             Page type string
         """
-        path = urlparse(url).path.lower()
+        parsed = urlparse(url)
+        # For hash-based SPAs, use the fragment; otherwise use path
+        path = (parsed.fragment if parsed.fragment else parsed.path).lower()
+        
+        # Strip leading ! from hash fragments (e.g., #!/devices -> /devices)
+        if path.startswith("!"):
+            path = path[1:]
 
         # Common patterns
         if "/login" in path:
@@ -650,37 +823,90 @@ class UIDiscoveryTool:
             return "tasks"
         if "/files" in path:
             return "files"
+        if "/faults" in path:
+            return "faults"
         if "/presets" in path:
             return "presets"
+        if "/provisions" in path:
+            return "provisions"
+        if "/virtualparameters" in path:
+            return "virtual_parameters"
+        if "/config" in path:
+            return "config"
+        if "/permissions" in path:
+            return "permissions"
+        if "/users" in path:
+            return "users"
         if "/admin" in path:
             return "admin"
-        if path == "/" or path == "":
+        if path == "/" or path == "#!/overview" or "/overview" in path:
             return "home"
 
         return "unknown"
 
-    def _find_navigation_links(self) -> list[dict[str, str]]:
-        """Find all navigation links on the current page.
+    def _find_links(self, current_page_url: str) -> list[str]:
+        """Find all internal navigation links on current page.
         
-        Returns:
-            List of link dictionaries with text, href, and selector
-        """
-        links = []
-        for link in self.driver.find_elements(By.TAG_NAME, "a"):
-            href = link.get_attribute("href")
+        Adds link elements to graph, creates navigation edges, and returns
+        list of new URLs to explore (leaves).
+        
+        Args:
+            current_page_url: Current page URL
             
-            # Debug logging for href type
-            if href and not isinstance(href, str):
-                logger.warning("Found non-string href: %s (type: %s)", href, type(href))
-                continue
+        Returns:
+            List of new URLs to add to frontier (leaves)
+        """
+        leaves = []
+        link_elements = self.driver.find_elements(By.TAG_NAME, "a")
+        
+        for i, link in enumerate(link_elements):
+            try:
+                # Extract attributes immediately to avoid stale element issues
+                href = link.get_attribute("href")
+                text = link.text.strip() or "(no text)"
+                css_selector = self._get_css_selector(link)
+                is_visible = link.is_displayed()
+                
+                # Debug logging for href type
+                if href and not isinstance(href, str):
+                    logger.warning("Found non-string href: %s (type: %s)", href, type(href))
+                    continue
 
-            if href and self._is_internal_link(href):
-                links.append({
-                    "text": link.text.strip() or "(no text)",
-                    "href": href,
-                    "css_selector": self._get_css_selector(link),
-                })
-        return links
+                if href and self._is_internal_link(href):
+                    normalized_href = self._normalize_url(href)
+                    
+                    # Add link element to graph
+                    link_elem_id = self.graph.add_element(
+                        current_page_url,
+                        "link",
+                        "css",
+                        css_selector,
+                        text=text,
+                        href=normalized_href,
+                        visibility_observed="visible" if is_visible else "hidden"
+                    )
+                    
+                    # Add navigation relationship
+                    self.graph.add_navigation_link(
+                        from_page=current_page_url,
+                        to_page=normalized_href,
+                        via_element=link_elem_id,
+                        action="click"
+                    )
+                    
+                    # Add to leaves if not yet visited
+                    if normalized_href not in self.visited_urls:
+                        leaves.append(normalized_href)
+                        
+            except StaleElementReferenceException:
+                # Element became stale (DOM changed), skip it
+                logger.debug("Skipping stale link element %d", i)
+                continue
+            except Exception as e:
+                logger.debug("Error processing link element %d: %s", i, e)
+                continue
+                
+        return leaves
 
     def _is_internal_link(self, href: str) -> bool:
         """Check if link is internal to the application.
@@ -702,6 +928,15 @@ class UIDiscoveryTool:
         if href.startswith(("javascript:", "mailto:", "#")):
             return False
 
+        # Skip API endpoints and download files
+        if any(href.endswith(ext) for ext in [".csv", ".json", ".xml", ".pdf", ".zip", ".tar", ".gz"]):
+            logger.debug("Skipping API/download endpoint: %s", href)
+            return False
+        
+        if "/api/" in href.lower():
+            logger.debug("Skipping API endpoint: %s", href)
+            return False
+
         parsed = urlparse(href)
         base_parsed = urlparse(self.base_url)
 
@@ -715,14 +950,25 @@ class UIDiscoveryTool:
             List of button dictionaries
         """
         buttons = []
-        for btn in self.driver.find_elements(By.TAG_NAME, "button"):
-            buttons.append({
-                "text": btn.text.strip(),
-                "title": btn.get_attribute("title"),
-                "id": btn.get_attribute("id"),
-                "class": btn.get_attribute("class"),
-                "css_selector": self._get_css_selector(btn),
-            })
+        button_elements = self.driver.find_elements(By.TAG_NAME, "button")
+        
+        for i, btn in enumerate(button_elements):
+            try:
+                # Extract attributes immediately to avoid stale element issues
+                buttons.append({
+                    "text": btn.text.strip(),
+                    "title": btn.get_attribute("title"),
+                    "id": btn.get_attribute("id"),
+                    "class": btn.get_attribute("class"),
+                    "css_selector": self._get_css_selector(btn),
+                })
+            except StaleElementReferenceException:
+                logger.debug("Skipping stale button element %d", i)
+                continue
+            except Exception as e:
+                logger.debug("Error processing button element %d: %s", i, e)
+                continue
+                
         return buttons
 
     def _discover_inputs(self) -> list[dict[str, Any]]:
@@ -732,14 +978,25 @@ class UIDiscoveryTool:
             List of input dictionaries
         """
         inputs = []
-        for inp in self.driver.find_elements(By.TAG_NAME, "input"):
-            inputs.append({
-                "type": inp.get_attribute("type"),
-                "name": inp.get_attribute("name"),
-                "id": inp.get_attribute("id"),
-                "placeholder": inp.get_attribute("placeholder"),
-                "css_selector": self._get_css_selector(inp),
-            })
+        input_elements = self.driver.find_elements(By.TAG_NAME, "input")
+        
+        for i, inp in enumerate(input_elements):
+            try:
+                # Extract attributes immediately to avoid stale element issues
+                inputs.append({
+                    "type": inp.get_attribute("type"),
+                    "name": inp.get_attribute("name"),
+                    "id": inp.get_attribute("id"),
+                    "placeholder": inp.get_attribute("placeholder"),
+                    "css_selector": self._get_css_selector(inp),
+                })
+            except StaleElementReferenceException:
+                logger.debug("Skipping stale input element %d", i)
+                continue
+            except Exception as e:
+                logger.debug("Error processing input element %d: %s", i, e)
+                continue
+                
         return inputs
 
     def _discover_links(self) -> list[dict[str, Any]]:
@@ -749,14 +1006,25 @@ class UIDiscoveryTool:
             List of link dictionaries
         """
         links = []
-        for link in self.driver.find_elements(By.TAG_NAME, "a"):
-            href = link.get_attribute("href")
-            if href:
-                links.append({
-                    "text": link.text.strip(),
-                    "href": href,
-                    "css_selector": self._get_css_selector(link),
-                })
+        link_elements = self.driver.find_elements(By.TAG_NAME, "a")
+        
+        for i, link in enumerate(link_elements):
+            try:
+                # Extract attributes immediately to avoid stale element issues
+                href = link.get_attribute("href")
+                if href:
+                    links.append({
+                        "text": link.text.strip(),
+                        "href": href,
+                        "css_selector": self._get_css_selector(link),
+                    })
+            except StaleElementReferenceException:
+                logger.debug("Skipping stale link element %d", i)
+                continue
+            except Exception as e:
+                logger.debug("Error processing link element %d: %s", i, e)
+                continue
+                
         return links
 
     def _discover_tables(self) -> list[dict[str, Any]]:
@@ -820,48 +1088,212 @@ class UIDiscoveryTool:
             
         return f"{parsed.scheme}://{parsed.netloc}{path}{'#' + parsed.fragment if parsed.fragment else ''}"
 
-    def _discover_interactions(self, page_url: str) -> list[dict[str, Any]]:
-        """Discover interactive elements by clicking buttons.
+    def _get_url_structure(self, url: str) -> str:
+        """Extract URL structure for pattern matching.
+        
+        Similar to URLPatternDetector logic but for online detection.
+        
+        Args:
+            url: URL to analyze
+            
+        Returns:
+            URL structure string (e.g., "#!/devices/{id}")
+        """
+        parsed = urlparse(url)
+        
+        # For hash-based SPAs, work with the fragment
+        path = parsed.fragment if parsed.fragment else parsed.path
+        
+        # Strip leading ! from hash fragments
+        if path.startswith("!"):
+            path = path[1:]
+        
+        # Split path into segments
+        segments = [s for s in path.split("/") if s]
+        
+        # If we have multiple segments, the last one might be a variable ID
+        if len(segments) >= 2:
+            # Use all segments except the last one as the structure
+            # This groups URLs like #!/devices/ID1, #!/devices/ID2 together
+            structure = "/".join(segments[:-1])
+            return structure
+        
+        # For single-segment or no-segment paths, use the full path
+        return path
+
+    def _should_skip_url(self, url: str) -> tuple[bool, str]:
+        """Check if URL matches a pattern we've already sampled enough.
+        
+        Args:
+            url: URL to check
+            
+        Returns:
+            Tuple of (should_skip, reason)
+        """
+        if not self.skip_pattern_duplicates:
+            return False, ""
+        
+        # Extract URL structure
+        structure = self._get_url_structure(url)
+        
+        # Skip empty structures
+        if not structure or structure == "/":
+            return False, ""
+        
+        # Initialize tracking for this structure if needed
+        if structure not in self.pattern_tracker:
+            self.pattern_tracker[structure] = []
+        
+        # Check if we've already sampled enough of this pattern
+        current_count = len(self.pattern_tracker[structure])
+        
+        if current_count >= self.pattern_sample_size:
+            # Mark as detected pattern (first time we skip)
+            if structure not in self.detected_patterns:
+                self.detected_patterns.add(structure)
+                logger.info(
+                    "Pattern detected: '%s' (sampled %d instances, skipping future instances)",
+                    structure,
+                    self.pattern_sample_size
+                )
+            
+            # Record this skip for stats
+            self.skipped_urls.append({
+                "url": url,
+                "pattern": structure,
+                "reason": f"Matches pattern (already sampled {self.pattern_sample_size} instances)"
+            })
+            
+            return True, f"Matches pattern '{structure}' (already sampled {self.pattern_sample_size} instances)"
+        
+        # Still collecting samples - don't add to tracker yet, wait for successful crawl
+        logger.debug(
+            "Pattern candidate '%s': %d/%d samples collected (will track if crawl succeeds)",
+            structure,
+            current_count,
+            self.pattern_sample_size
+        )
+        
+        return False, ""
+    
+    def _track_successful_crawl(self, url: str) -> None:
+        """Track a URL after successful crawl for pattern detection.
+        
+        Only successfully crawled URLs should count toward pattern sampling.
+        
+        Args:
+            url: URL that was successfully crawled
+        """
+        if not self.skip_pattern_duplicates:
+            return
+        
+        # Extract URL structure
+        structure = self._get_url_structure(url)
+        
+        # Skip empty structures
+        if not structure or structure == "/":
+            return
+        
+        # Initialize tracking for this structure if needed
+        if structure not in self.pattern_tracker:
+            self.pattern_tracker[structure] = []
+        
+        # Add this URL to the pattern tracker
+        if url not in self.pattern_tracker[structure]:
+            self.pattern_tracker[structure].append(url)
+            logger.debug(
+                "Tracked successful crawl for pattern '%s': %d/%d samples",
+                structure,
+                len(self.pattern_tracker[structure]),
+                self.pattern_sample_size
+            )
+
+    def _discover_interactions(self, page_url: str):
+        """Discover modals by clicking safe buttons.
+        
+        Creates modal nodes in the graph when modals are detected, along with
+        their elements and OPENS_MODAL edges from trigger buttons.
         
         Args:
             page_url: Current page URL for state recovery
-            
-        Returns:
-            List of discovered interactions
         """
         if not self.enable_interaction_discovery:
-            return []
+            return
         
-        interactions = []
         buttons = self._find_safe_buttons()
         
         logger.info("Discovering interactions: found %d safe buttons to test", len(buttons))
         
-        for button in buttons:
+        for i, button in enumerate(buttons):
             try:
-                # Record initial state
+                # Record initial state and extract button info before clicking
                 initial_url = self.driver.current_url
                 button_text = button.text.strip()
+                button_selector = self._get_css_selector(button)
                 
-                logger.debug("Clicking button: %s", button_text)
+                logger.debug("Clicking button %d/%d: %s", i + 1, len(buttons), button_text)
                 
                 # Click button
                 button.click()
                 time.sleep(self.interaction_timeout)
                 
                 # Check for modal
-                modal = self._detect_modal()
-                if modal:
+                modal_info = self._detect_modal()
+                if modal_info:
                     logger.info("Modal detected after clicking '%s'", button_text)
-                    interaction = {
-                        "trigger": {
-                            "type": "button",
-                            "text": button_text,
-                            "selector": self._get_css_selector(button),
-                        },
-                        "result": modal,
-                    }
-                    interactions.append(interaction)
+                    
+                    # Create modal node
+                    modal_id = self.graph.add_modal(
+                        parent_page=page_url,
+                        title=modal_info.get("title", ""),
+                        modal_type="dialog",
+                        css_selector=modal_info.get("css_selector", "")
+                    )
+                    
+                    # Find trigger button in graph and create OPENS_MODAL edge
+                    # Search for button with matching selector
+                    for elem_id in self.graph.get_container_elements(page_url):
+                        elem_data = self.graph.graph.G.nodes.get(elem_id[0], {})
+                        if (elem_data.get("element_type") == "button" and
+                            elem_data.get("text") == button_text):
+                            self.graph.add_modal_trigger(elem_id[0], modal_id, action="click")
+                            break
+                    
+                    # Add modal's elements to graph
+                    for btn_info in modal_info.get("buttons", []):
+                        self.graph.add_element(
+                            modal_id,
+                            "button",
+                            "css",
+                            btn_info.get("css_selector", ""),
+                            text=btn_info.get("text", ""),
+                            button_type=btn_info.get("type", ""),
+                            button_class=btn_info.get("class", ""),
+                            visibility_observed="visible"
+                        )
+                    
+                    for input_info in modal_info.get("inputs", []):
+                        self.graph.add_element(
+                            modal_id,
+                            "input",
+                            "css",
+                            input_info.get("css_selector", ""),
+                            input_type=input_info.get("type", ""),
+                            name=input_info.get("name", ""),
+                            placeholder=input_info.get("placeholder", ""),
+                            required=input_info.get("required", False),
+                            visibility_observed="visible"
+                        )
+                    
+                    for select_info in modal_info.get("selects", []):
+                        self.graph.add_element(
+                            modal_id,
+                            "select",
+                            "css",
+                            select_info.get("css_selector", ""),
+                            name=select_info.get("name", ""),
+                            visibility_observed="visible"
+                        )
                     
                     # Close modal
                     self._close_modal()
@@ -873,16 +1305,30 @@ class UIDiscoveryTool:
                     self.driver.get(page_url)
                     self.wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
                     
-            except Exception as e:
-                logger.debug("Error clicking button '%s': %s", button.text if hasattr(button, 'text') else 'unknown', e)
-                # Try to recover
+            except StaleElementReferenceException:
+                # Button became stale (common after page navigation)
+                logger.debug("Button %d/%d became stale, skipping", i + 1, len(buttons))
+                # Try to recover page state
                 try:
                     self.driver.get(page_url)
                     self.wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+                    time.sleep(0.5)
                 except:
                     pass
-        
-        return interactions
+            except Exception as e:
+                # Extract button text safely
+                try:
+                    btn_text = button_text if 'button_text' in locals() else 'unknown'
+                except:
+                    btn_text = 'unknown'
+                logger.debug("Error with button %d/%d (%s): %s", i + 1, len(buttons), btn_text, e)
+                # Try to recover page state
+                try:
+                    self.driver.get(page_url)
+                    self.wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+                    time.sleep(0.5)
+                except:
+                    pass
 
     def _find_safe_buttons(self) -> list[WebElement]:
         """Find buttons that are safe to click.
@@ -1120,12 +1566,6 @@ def main():
         help="Custom login URL (optional)",
     )
     parser.add_argument(
-        "--max-depth",
-        type=int,
-        default=3,
-        help="Maximum crawl depth (default: 3)",
-    )
-    parser.add_argument(
         "--headless",
         action="store_true",
         default=True,
@@ -1152,6 +1592,17 @@ def main():
         type=int,
         default=3,
         help="Minimum URLs required to form a pattern (default: 3)",
+    )
+    parser.add_argument(
+        "--skip-pattern-duplicates",
+        action="store_true",
+        help="Skip URLs matching detected patterns after sampling enough instances (default: disabled)",
+    )
+    parser.add_argument(
+        "--pattern-sample-size",
+        type=int,
+        default=3,
+        help="Number of pattern instances to crawl before skipping duplicates (default: 3)",
     )
     parser.add_argument(
         "--discover-interactions",
@@ -1183,12 +1634,13 @@ def main():
         enable_interaction_discovery=args.discover_interactions,
         safe_buttons=args.safe_buttons,
         interaction_timeout=args.interaction_timeout,
+        skip_pattern_duplicates=args.skip_pattern_duplicates,
+        pattern_sample_size=args.pattern_sample_size,
     )
 
     # Discover site
     logger.info("Starting UI discovery for %s", args.url)
     ui_map = tool.discover_site(
-        max_depth=args.max_depth,
         login_first=not args.no_login,
         login_url=args.login_url,
     )
@@ -1199,7 +1651,31 @@ def main():
         json.dump(ui_map, f, indent=2)
 
     logger.info("UI map saved to %s", output_path)
-    logger.info("Discovered %d pages", len(ui_map["pages"]))
+    
+    # Log graph statistics
+    graph_stats = ui_map.get("statistics", {})
+    logger.info("Graph statistics:")
+    logger.info("  - Pages: %d", graph_stats.get("page_count", 0))
+    logger.info("  - Modals: %d", graph_stats.get("modal_count", 0))
+    logger.info("  - Forms: %d", graph_stats.get("form_count", 0))
+    logger.info("  - Elements: %d", graph_stats.get("element_count", 0))
+    logger.info("  - Total nodes: %d", graph_stats.get("total_nodes", 0))
+    logger.info("  - Total edges: %d", graph_stats.get("total_edges", 0))
+    
+    # Log discovery statistics
+    discovery_stats = ui_map.get("discovery_stats", {})
+    logger.info("Discovery method: %s", ui_map.get("discovery_method", "unknown"))
+    logger.info("Levels explored: %d", ui_map.get("levels_explored", 0))
+    
+    if discovery_stats.get("pattern_skipping_enabled"):
+        logger.info("Pattern-based skipping: ENABLED")
+        logger.info("  - Pages crawled: %d", discovery_stats.get("pages_crawled", 0))
+        logger.info("  - Pages skipped: %d", discovery_stats.get("pages_skipped", 0))
+        logger.info("  - Patterns detected during crawl: %d", discovery_stats.get("patterns_detected_during_crawl", 0))
+        logger.info("  - Sample size per pattern: %d", discovery_stats.get("pattern_sample_size", 0))
+        if discovery_stats.get("pages_skipped", 0) > 0:
+            time_saved = discovery_stats.get("pages_skipped", 0) * 30  # Rough estimate: 30 sec/page
+            logger.info("  - Estimated time saved: ~%d minutes", time_saved // 60)
 
 
 if __name__ == "__main__":

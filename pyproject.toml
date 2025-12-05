@@ -36,6 +36,7 @@ dependencies = [
     "jc",
     "jsonmerge",
     "netaddr",
+    "networkx>=3.0",  # UI graph representation
     "pandas",
     "pexpect>=4.9",
     "pluggy>=1.0.0",
