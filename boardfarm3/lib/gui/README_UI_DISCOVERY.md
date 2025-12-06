@@ -198,6 +198,23 @@ http://127.0.0.1:3000/#!/devices?filter=Events.Inform > NOW() - 86700000 AND Eve
 - Pattern detection groups them as: `/devices?filter={filter}`
 - Page type classification uses base path (e.g., `device_list`, not `device_details`)
 
+### Query Parameter Preservation
+
+While query parameters are stripped for **page identity** (to avoid duplicate nodes), they are **preserved on navigation edges**.
+
+When a link contains query parameters (e.g., `<a href="#!/devices?filter=active">`):
+1. The target node key is normalized to `http://.../#!/devices`
+2. The navigation edge created between the source and target includes a `query_params` property:
+   ```json
+   {
+     "edge_type": "NAVIGATES_TO",
+     "query_params": {
+       "filter": "active"
+     }
+   }
+   ```
+
+This allows downstream tools to reconstruct the exact navigation URL (including filters) while keeping the graph structure clean and consolidated.
 ### Benefits
 
 - **Reduces redundancy** in UI maps (15 device pages → 1 pattern)

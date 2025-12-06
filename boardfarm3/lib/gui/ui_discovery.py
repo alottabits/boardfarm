@@ -888,6 +888,9 @@ class UIDiscoveryTool:
                     continue
 
                 if href and self._is_internal_link(href):
+                    # Extract query parameters before normalization
+                    query_params = self._parse_query_string(href)
+                    
                     normalized_href = self._normalize_url(href)
                     
                     # Debug logging for SVG links
@@ -912,12 +915,13 @@ class UIDiscoveryTool:
                     if is_svg_link:
                         logger.info("SVG link added to graph with ID: %s", link_elem_id)
                     
-                    # Add navigation relationship
+                    # Add navigation relationship with query parameters
                     self.graph.add_navigation_link(
                         from_page=current_page_url,
                         to_page=normalized_href,
                         via_element=link_elem_id,
-                        action="click"
+                        action="click",
+                        query_params=query_params if query_params else None
                     )
                     
                     # Add to leaves if not yet visited

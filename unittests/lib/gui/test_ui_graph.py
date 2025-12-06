@@ -472,9 +472,9 @@ class TestExportOperations:
         
         assert "directed" in data
         assert "nodes" in data
-        assert "links" in data
+        assert "edges" in data
         assert len(data["nodes"]) == 2
-        assert len(data["links"]) == 1
+        assert len(data["edges"]) == 1
     
     def test_export_and_import_node_link(self):
         """Test round-trip export and import."""

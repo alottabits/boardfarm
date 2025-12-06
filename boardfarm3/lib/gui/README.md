@@ -129,7 +129,7 @@ selectors.yaml              navigation.yaml
 1. **`ui_graph.py`** - NetworkX wrapper for graph representation
    
    - Nodes: Pages, Modals, Forms, Elements
-   - Edges: Containment, Navigation, Dependencies
+   - Edges: Containment, Navigation (with query params), Dependencies
    - Algorithms: Shortest path, All paths, Connectivity checks
 
 2. **`ui_discovery.py`** - Automated UI crawler

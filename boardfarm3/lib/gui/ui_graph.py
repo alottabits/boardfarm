@@ -237,6 +237,8 @@ class UIGraph:
                 - state_change: str (e.g., "logs_in_user")
                 - condition: str (free-form condition description)
                 - action: str (e.g., "click", "submit")
+                - query_params: dict[str, str] | None (e.g., {"filter": "value", "tab": "devices"})
+                  Query parameters from the original link, preserved for accurate navigation
         
         Example:
             >>> graph.add_navigation_link(
@@ -246,6 +248,15 @@ class UIGraph:
             ...     requires_authentication=True,
             ...     requires_input=["username", "password"],
             ...     state_change="logs_in_user"
+            ... )
+            
+            >>> # Navigation with query parameters
+            >>> graph.add_navigation_link(
+            ...     "http://localhost/#!/devices",
+            ...     "http://localhost/#!/devices",
+            ...     via_element="elem_link_5",
+            ...     action="click",
+            ...     query_params={"filter": "Events.Inform > NOW()", "sort": "desc"}
             ... )
         """
         # If a specific element triggers navigation, create that edge
@@ -710,7 +721,7 @@ class UIGraph:
             >>> pages = graph.get_pages()
         """
         instance = cls()
-        instance.G = nx.node_link_graph(data)
+        instance.G = nx.node_link_graph(data, edges="edges")
         
         # Restore counters based on existing IDs
         for node_id in instance.G.nodes():
