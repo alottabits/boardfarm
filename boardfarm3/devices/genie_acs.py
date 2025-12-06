@@ -482,11 +482,631 @@ class GenieAcsNBI(ACSNBI):
 
 
 class GenieAcsGUI(ACSGUI):
-    """GenieACS GUI Implementation."""
-
-    def login(self) -> None:
-        """Login to the ACS GUI."""
-        pass
+    """GenieACS GUI Implementation using semantic element search.
+    
+    This implementation uses:
+    - Task-oriented methods from ACSGUI template
+    - Semantic element search for self-healing tests
+    - Generated selectors.yaml and navigation.yaml artifacts
+    - BaseGuiComponent for UI interaction
+    
+    Prerequisites:
+    - Run ui_discovery.py on GenieACS to generate ui_map.json
+    - Run selector_generator.py to create selectors.yaml
+    - Run navigation_generator.py to create navigation.yaml
+    """
+    
+    def __init__(self, device: GenieACS) -> None:
+        """Initialize GenieACS GUI component.
+        
+        :param device: Parent GenieACS device
+        """
+        super().__init__(device)
+        self._driver = None
+        self._base_component = None
+        # TODO: Set these paths to actual generated artifacts
+        self._selector_file = None  # Path to selectors.yaml
+        self._navigation_file = None  # Path to navigation.yaml
+    
+    def _ensure_initialized(self) -> None:
+        """Ensure Selenium driver and BaseGuiComponent are initialized.
+        
+        Raises:
+            NotImplementedError: If GUI testing is not yet configured
+        """
+        if self._driver is None or self._base_component is None:
+            raise NotImplementedError(
+                "GenieACS GUI component not yet initialized. "
+                "Please run UI discovery and generate artifacts:\n"
+                "1. ui_discovery.py --url <genieacs_url> --output ui_map.json\n"
+                "2. selector_generator.py --input ui_map.json --output selectors.yaml\n"
+                "3. navigation_generator.py --input ui_map.json --output navigation.yaml"
+            )
+    
+    # ========================================================================
+    # Authentication Methods
+    # ========================================================================
+    
+    def login(self, username: str | None = None, password: str | None = None) -> bool:
+        """Login to GenieACS GUI.
+        
+        :param username: Username (uses config if None)
+        :param password: Password (uses config if None)
+        :return: True if login successful
+        """
+        self._ensure_initialized()
+        
+        username = username or self.config.get("http_username", "admin")
+        password = password or self.config.get("http_password", "admin")
+        
+        # Navigate to login page if not already there
+        base_url = f"http://{self.config['ipaddr']}:{self.config['http_port']}"
+        self._driver.get(base_url)
+        
+        # Find username input using semantic search
+        username_input = self._base_component.find_element_by_function(
+            element_type="input",
+            function_keywords=["username", "user", "login"],
+            page="login_page",
+            fallback_name="username"
+        )
+        username_input.clear()
+        username_input.send_keys(username)
+        
+        # Find password input
+        password_input = self._base_component.find_element_by_function(
+            element_type="input",
+            function_keywords=["password", "pass"],
+            page="login_page",
+            fallback_name="password"
+        )
+        password_input.clear()
+        password_input.send_keys(password)
+        
+        # Find and click login button
+        login_btn = self._base_component.find_element_by_function(
+            element_type="button",
+            function_keywords=["login", "sign in", "submit"],
+            page="login_page",
+            fallback_name="login"
+        )
+        login_btn.click()
+        
+        # Verify login successful (check for logout button or home page element)
+        try:
+            self._base_component.find_element_by_function(
+                element_type="link",
+                function_keywords=["logout", "sign out"],
+                timeout=10
+            )
+            return True
+        except Exception as e:
+            _LOGGER.error("Login verification failed: %s", e)
+            return False
+    
+    def logout(self) -> bool:
+        """Logout from GenieACS GUI.
+        
+        :return: True if logout successful
+        """
+        self._ensure_initialized()
+        
+        try:
+            logout_link = self._base_component.find_element_by_function(
+                element_type="link",
+                function_keywords=["logout", "sign out", "exit"],
+                fallback_name="logout"
+            )
+            logout_link.click()
+            return True
+        except Exception as e:
+            _LOGGER.error("Logout failed: %s", e)
+            return False
+    
+    def is_logged_in(self) -> bool:
+        """Check if currently logged into GenieACS GUI.
+        
+        :return: True if logged in
+        """
+        self._ensure_initialized()
+        
+        try:
+            # Check for presence of logout link/button
+            self._base_component.find_element_by_function(
+                element_type="link",
+                function_keywords=["logout", "sign out"],
+                timeout=5
+            )
+            return True
+        except Exception:
+            return False
+    
+    # ========================================================================
+    # Device Discovery & Navigation Methods
+    # ========================================================================
+    
+    def search_device(self, cpe_id: str) -> bool:
+        """Search for device in GenieACS by CPE ID.
+        
+        :param cpe_id: CPE identifier (serial number or ID)
+        :return: True if device found
+        """
+        self._ensure_initialized()
+        
+        # Navigate to devices page (uses navigation.yaml)
+        self._base_component.navigate_path("Path_Home_to_Devices")
+        
+        # Find search input
+        search_input = self._base_component.find_element_by_function(
+            element_type="input",
+            function_keywords=["search", "filter", "find"],
+            page="devices_page",
+            fallback_name="device_search"
+        )
+        search_input.clear()
+        search_input.send_keys(cpe_id)
+        
+        # Optionally trigger search (some UIs need button click, others are live search)
+        try:
+            search_btn = self._base_component.find_element_by_function(
+                element_type="button",
+                function_keywords=["search", "find", "go"],
+                page="devices_page",
+                timeout=2
+            )
+            search_btn.click()
+        except Exception:
+            pass  # Live search, no button needed
+        
+        # Check if device appears in results
+        try:
+            # Look for device link/row containing the CPE ID
+            device_link = self._base_component._find_element(
+                f"devices_page.links.device_{cpe_id}",
+                timeout=5
+            )
+            return device_link is not None
+        except Exception as e:
+            _LOGGER.debug("Device %s not found: %s", cpe_id, e)
+            return False
+    
+    def get_device_count(self) -> int:
+        """Get total number of devices in GenieACS.
+        
+        :return: Number of devices
+        """
+        self._ensure_initialized()
+        
+        # Navigate to devices page
+        self._base_component.navigate_path("Path_Home_to_Devices")
+        
+        # GenieACS typically shows count in pagination or summary
+        try:
+            count_element = self._base_component.find_element_by_function(
+                element_type="button",  # Could be span, div, etc.
+                function_keywords=["total", "count", "devices", "showing"],
+                page="devices_page",
+                timeout=5
+            )
+            # Extract number from text (e.g., "Showing 1-20 of 150")
+            text = count_element.text
+            # Parse count from text (implementation depends on UI format)
+            import re
+            match = re.search(r'of\s+(\d+)', text, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+            return 0
+        except Exception as e:
+            _LOGGER.error("Failed to get device count: %s", e)
+            return 0
+    
+    def filter_devices(self, filter_criteria: dict[str, str]) -> int:
+        """Apply filter criteria to device list.
+        
+        :param filter_criteria: Dict of field:value filters
+        :return: Number of devices matching filter
+        """
+        self._ensure_initialized()
+        
+        # Navigate to devices page
+        self._base_component.navigate_path("Path_Home_to_Devices")
+        
+        # GenieACS uses query builder for filtering
+        # This is a simplified implementation
+        for field, value in filter_criteria.items():
+            # Find filter input for this field
+            filter_input = self._base_component.find_element_by_function(
+                element_type="input",
+                function_keywords=["filter", field, "query"],
+                page="devices_page"
+            )
+            filter_input.clear()
+            filter_input.send_keys(f"{field}:{value}")
+        
+        # Apply filter
+        apply_btn = self._base_component.find_element_by_function(
+            element_type="button",
+            function_keywords=["apply", "filter", "search"],
+            page="devices_page"
+        )
+        apply_btn.click()
+        
+        # Return count after filtering
+        return self.get_device_count()
+    
+    # ========================================================================
+    # Device Status & Information Methods
+    # ========================================================================
+    
+    def get_device_status(self, cpe_id: str) -> dict[str, str]:
+        """Get device status from GenieACS GUI.
+        
+        :param cpe_id: CPE identifier
+        :return: Dict with status info
+        """
+        self._ensure_initialized()
+        
+        # Navigate to device details
+        self._base_component.navigate_path(
+            "Path_Devices_to_DeviceDetails",
+            cpe_id=cpe_id
+        )
+        
+        # Extract status information from UI
+        # GenieACS shows status in overview/summary section
+        status_info = {}
+        
+        try:
+            # Get online/offline status
+            status_element = self._base_component.find_element_by_function(
+                element_type="button",  # Could be span, badge, etc.
+                function_keywords=["status", "online", "connected"],
+                page="device_details_page",
+                timeout=5
+            )
+            status_info["status"] = status_element.text.lower()
+        except Exception:
+            status_info["status"] = "unknown"
+        
+        # Additional fields can be extracted similarly
+        return status_info
+    
+    def verify_device_online(self, cpe_id: str, timeout: int = 60) -> bool:
+        """Wait for device to come online.
+        
+        :param cpe_id: CPE identifier
+        :param timeout: Max wait time in seconds
+        :return: True if device comes online
+        """
+        self._ensure_initialized()
+        
+        import time
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            status = self.get_device_status(cpe_id)
+            if status.get("status") == "online":
+                return True
+            time.sleep(5)  # Check every 5 seconds
+        
+        return False
+    
+    def get_last_inform_time(self, cpe_id: str) -> str:
+        """Get device's last inform timestamp.
+        
+        :param cpe_id: CPE identifier
+        :return: Last inform time (ISO format)
+        """
+        self._ensure_initialized()
+        
+        # Navigate to device details
+        self._base_component.navigate_path(
+            "Path_Devices_to_DeviceDetails",
+            cpe_id=cpe_id
+        )
+        
+        # Find last inform element
+        try:
+            inform_element = self._base_component.find_element_by_function(
+                element_type="button",  # Could be span, div, etc.
+                function_keywords=["last", "inform", "contact", "connection"],
+                page="device_details_page"
+            )
+            return inform_element.text
+        except Exception as e:
+            _LOGGER.error("Failed to get last inform time: %s", e)
+            return ""
+    
+    # ========================================================================
+    # Device Operation Methods
+    # ========================================================================
+    
+    def reboot_device_via_gui(self, cpe_id: str) -> bool:
+        """Reboot device via GenieACS GUI.
+        
+        :param cpe_id: CPE identifier
+        :return: True if reboot initiated
+        """
+        self._ensure_initialized()
+        
+        # Navigate to device details
+        self._base_component.navigate_path(
+            "Path_Devices_to_DeviceDetails",
+            cpe_id=cpe_id
+        )
+        
+        # Find reboot button using semantic search
+        reboot_btn = self._base_component.find_element_by_function(
+            element_type="button",
+            function_keywords=["reboot", "restart", "reset"],
+            page="device_details_page",
+            fallback_name="reboot"
+        )
+        reboot_btn.click()
+        
+        # Handle confirmation modal if present
+        try:
+            confirm_btn = self._base_component.find_element_by_function(
+                element_type="button",
+                function_keywords=["confirm", "yes", "ok", "proceed"],
+                page="reboot_modal",
+                timeout=2
+            )
+            confirm_btn.click()
+        except Exception:
+            pass  # No confirmation needed
+        
+        _LOGGER.info("Reboot initiated for device %s", cpe_id)
+        return True
+    
+    def factory_reset_via_gui(self, cpe_id: str) -> bool:
+        """Factory reset device via GenieACS GUI.
+        
+        :param cpe_id: CPE identifier
+        :return: True if factory reset initiated
+        """
+        self._ensure_initialized()
+        
+        # Navigate to device details
+        self._base_component.navigate_path(
+            "Path_Devices_to_DeviceDetails",
+            cpe_id=cpe_id
+        )
+        
+        # Find factory reset button
+        reset_btn = self._base_component.find_element_by_function(
+            element_type="button",
+            function_keywords=["factory", "reset", "default"],
+            page="device_details_page",
+            fallback_name="factory_reset"
+        )
+        reset_btn.click()
+        
+        # Confirm (factory reset usually requires confirmation)
+        try:
+            confirm_btn = self._base_component.find_element_by_function(
+                element_type="button",
+                function_keywords=["confirm", "yes", "proceed"],
+                page="factory_reset_modal",
+                timeout=5
+            )
+            confirm_btn.click()
+        except Exception as e:
+            _LOGGER.error("Factory reset confirmation failed: %s", e)
+            return False
+        
+        _LOGGER.info("Factory reset initiated for device %s", cpe_id)
+        return True
+    
+    def delete_device_via_gui(self, cpe_id: str, confirm: bool = True) -> bool:
+        """Delete device from GenieACS via GUI.
+        
+        :param cpe_id: CPE identifier
+        :param confirm: Whether to confirm deletion
+        :return: True if deletion successful
+        """
+        self._ensure_initialized()
+        
+        # Navigate to device details
+        self._base_component.navigate_path(
+            "Path_Devices_to_DeviceDetails",
+            cpe_id=cpe_id
+        )
+        
+        # Find delete button
+        delete_btn = self._base_component.find_element_by_function(
+            element_type="button",
+            function_keywords=["delete", "remove"],
+            page="device_details_page",
+            fallback_name="delete"
+        )
+        delete_btn.click()
+        
+        if confirm:
+            try:
+                confirm_btn = self._base_component.find_element_by_function(
+                    element_type="button",
+                    function_keywords=["confirm", "yes", "delete"],
+                    page="delete_modal",
+                    timeout=5
+                )
+                confirm_btn.click()
+            except Exception as e:
+                _LOGGER.error("Delete confirmation failed: %s", e)
+                return False
+        
+        _LOGGER.info("Device %s deleted", cpe_id)
+        return True
+    
+    # ========================================================================
+    # Parameter Operation Methods
+    # ========================================================================
+    
+    def get_device_parameter_via_gui(self, cpe_id: str, parameter: str) -> str | None:
+        """Get device parameter value via GUI.
+        
+        :param cpe_id: CPE identifier
+        :param parameter: TR-069 parameter path
+        :return: Parameter value or None
+        """
+        self._ensure_initialized()
+        
+        # Navigate to device parameters page
+        self._base_component.navigate_path(
+            "Path_Devices_to_Parameters",
+            cpe_id=cpe_id
+        )
+        
+        # Search for parameter
+        search_input = self._base_component.find_element_by_function(
+            element_type="input",
+            function_keywords=["search", "filter", "parameter"],
+            page="parameters_page"
+        )
+        search_input.clear()
+        search_input.send_keys(parameter)
+        
+        # Get value from table/list
+        # Implementation depends on GenieACS UI structure
+        try:
+            # This is a simplified version
+            value_element = self._base_component._find_element(
+                f"parameters_page.values.{parameter}",
+                timeout=5
+            )
+            return value_element.text
+        except Exception as e:
+            _LOGGER.error("Failed to get parameter %s: %s", parameter, e)
+            return None
+    
+    def set_device_parameter_via_gui(
+        self, cpe_id: str, parameter: str, value: str
+    ) -> bool:
+        """Set device parameter via GUI.
+        
+        :param cpe_id: CPE identifier
+        :param parameter: TR-069 parameter path
+        :param value: Value to set
+        :return: True if successful
+        """
+        self._ensure_initialized()
+        
+        # Navigate to device parameters page
+        self._base_component.navigate_path(
+            "Path_Devices_to_Parameters",
+            cpe_id=cpe_id
+        )
+        
+        # Find parameter and edit
+        # GenieACS typically has edit buttons or inline editing
+        try:
+            edit_btn = self._base_component.find_element_by_function(
+                element_type="button",
+                function_keywords=["edit", "modify", "change"],
+                page="parameters_page"
+            )
+            edit_btn.click()
+            
+            # Enter new value
+            value_input = self._base_component.find_element_by_function(
+                element_type="input",
+                function_keywords=["value", parameter],
+                page="edit_parameter_modal"
+            )
+            value_input.clear()
+            value_input.send_keys(value)
+            
+            # Save
+            save_btn = self._base_component.find_element_by_function(
+                element_type="button",
+                function_keywords=["save", "apply", "submit"],
+                page="edit_parameter_modal"
+            )
+            save_btn.click()
+            
+            _LOGGER.info("Parameter %s set to %s", parameter, value)
+            return True
+        except Exception as e:
+            _LOGGER.error("Failed to set parameter %s: %s", parameter, e)
+            return False
+    
+    # ========================================================================
+    # Firmware Operation Methods
+    # ========================================================================
+    
+    def trigger_firmware_upgrade_via_gui(self, cpe_id: str, firmware_url: str) -> bool:
+        """Trigger firmware upgrade via GUI.
+        
+        :param cpe_id: CPE identifier
+        :param firmware_url: URL of firmware image
+        :return: True if upgrade initiated
+        """
+        self._ensure_initialized()
+        
+        # Navigate to device details
+        self._base_component.navigate_path(
+            "Path_Devices_to_DeviceDetails",
+            cpe_id=cpe_id
+        )
+        
+        # Find firmware/upgrade section
+        upgrade_btn = self._base_component.find_element_by_function(
+            element_type="button",
+            function_keywords=["firmware", "upgrade", "update"],
+            page="device_details_page",
+            fallback_name="firmware_upgrade"
+        )
+        upgrade_btn.click()
+        
+        # Enter firmware URL
+        url_input = self._base_component.find_element_by_function(
+            element_type="input",
+            function_keywords=["url", "firmware", "file"],
+            page="firmware_modal"
+        )
+        url_input.clear()
+        url_input.send_keys(firmware_url)
+        
+        # Trigger upgrade
+        start_btn = self._base_component.find_element_by_function(
+            element_type="button",
+            function_keywords=["start", "upgrade", "download"],
+            page="firmware_modal"
+        )
+        start_btn.click()
+        
+        _LOGGER.info("Firmware upgrade initiated for %s", cpe_id)
+        return True
+    
+    def verify_firmware_version_via_gui(
+        self, cpe_id: str, expected_version: str
+    ) -> bool:
+        """Verify firmware version via GUI.
+        
+        :param cpe_id: CPE identifier
+        :param expected_version: Expected firmware version
+        :return: True if version matches
+        """
+        self._ensure_initialized()
+        
+        # Navigate to device details
+        self._base_component.navigate_path(
+            "Path_Devices_to_DeviceDetails",
+            cpe_id=cpe_id
+        )
+        
+        # Find firmware version display
+        try:
+            version_element = self._base_component.find_element_by_function(
+                element_type="button",  # Could be span, div, etc.
+                function_keywords=["firmware", "version", "software"],
+                page="device_details_page"
+            )
+            current_version = version_element.text
+            return expected_version in current_version
+        except Exception as e:
+            _LOGGER.error("Failed to verify firmware version: %s", e)
+            return False
 
 
 class GenieACS(LinuxDevice, ACS):
