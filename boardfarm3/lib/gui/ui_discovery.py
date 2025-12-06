@@ -721,6 +721,20 @@ class UIDiscoveryTool:
                 css_selector = self._get_css_selector(btn)
                 is_visible = btn.is_displayed()
                 
+                # Enhanced metadata for semantic search (Phase 5.1)
+                aria_label = btn.get_attribute("aria-label")
+                data_action = btn.get_attribute("data-action")
+                data_target = btn.get_attribute("data-target")
+                onclick = btn.get_attribute("onclick")
+                
+                # Capture additional data-* attributes that might indicate function
+                role = btn.get_attribute("role")
+                data_toggle = btn.get_attribute("data-toggle")
+                data_dismiss = btn.get_attribute("data-dismiss")
+                
+                # Truncate onclick to avoid excessive length
+                onclick_hint = onclick[:100] if onclick else None
+                
                 self.graph.add_element(
                     page_url,
                     "button",
@@ -731,6 +745,13 @@ class UIDiscoveryTool:
                     button_id=btn_id,
                     button_class=btn_class,
                     button_type=btn_type,
+                    aria_label=aria_label,
+                    data_action=data_action,
+                    data_target=data_target,
+                    onclick_hint=onclick_hint,
+                    role=role,
+                    data_toggle=data_toggle,
+                    data_dismiss=data_dismiss,
                     visibility_observed="visible" if is_visible else "hidden"
                 )
             except StaleElementReferenceException:
@@ -752,6 +773,14 @@ class UIDiscoveryTool:
                 css_selector = self._get_css_selector(inp)
                 is_visible = inp.is_displayed()
                 
+                # Enhanced metadata for semantic search (Phase 5.1)
+                aria_label = inp.get_attribute("aria-label")
+                value = inp.get_attribute("value")
+                autocomplete = inp.get_attribute("autocomplete")
+                role = inp.get_attribute("role")
+                data_action = inp.get_attribute("data-action")
+                title = inp.get_attribute("title")
+                
                 self.graph.add_element(
                     page_url,
                     "input",
@@ -761,6 +790,12 @@ class UIDiscoveryTool:
                     name=name,
                     input_id=inp_id,
                     placeholder=placeholder,
+                    aria_label=aria_label,
+                    value=value,
+                    autocomplete=autocomplete,
+                    role=role,
+                    data_action=data_action,
+                    title=title,
                     visibility_observed="visible" if is_visible else "hidden"
                 )
             except StaleElementReferenceException:
@@ -779,6 +814,12 @@ class UIDiscoveryTool:
                 css_selector = self._get_css_selector(sel)
                 is_visible = sel.is_displayed()
                 
+                # Enhanced metadata for semantic search (Phase 5.1)
+                aria_label = sel.get_attribute("aria-label")
+                title = sel.get_attribute("title")
+                data_action = sel.get_attribute("data-action")
+                role = sel.get_attribute("role")
+                
                 self.graph.add_element(
                     page_url,
                     "select",
@@ -786,6 +827,10 @@ class UIDiscoveryTool:
                     css_selector,
                     name=name,
                     select_id=sel_id,
+                    aria_label=aria_label,
+                    title=title,
+                    data_action=data_action,
+                    role=role,
                     visibility_observed="visible" if is_visible else "hidden"
                 )
             except StaleElementReferenceException:
@@ -874,6 +919,14 @@ class UIDiscoveryTool:
                 css_selector = self._get_css_selector(link)
                 is_visible = link.is_displayed()
                 
+                # Enhanced metadata for semantic search (Phase 5.1)
+                link_id = link.get_attribute("id")
+                link_class = link.get_attribute("class")
+                title = link.get_attribute("title")
+                aria_label = link.get_attribute("aria-label")
+                role = link.get_attribute("role")
+                data_action = link.get_attribute("data-action")
+                
                 # Handle SVG href (returns dict with baseVal/animVal)
                 is_svg_link = False
                 if href and isinstance(href, dict):
@@ -900,7 +953,7 @@ class UIDiscoveryTool:
                     # Determine element type (svg_link for SVG elements, link for HTML)
                     element_type = "svg_link" if is_svg_link else "link"
                     
-                    # Add link element to graph
+                    # Add link element to graph with enhanced metadata
                     link_elem_id = self.graph.add_element(
                         current_page_url,
                         element_type,
@@ -908,6 +961,12 @@ class UIDiscoveryTool:
                         css_selector,
                         text=text,
                         href=normalized_href,
+                        link_id=link_id,
+                        link_class=link_class,
+                        title=title,
+                        aria_label=aria_label,
+                        role=role,
+                        data_action=data_action,
                         visibility_observed="visible" if is_visible else "hidden"
                     )
                     

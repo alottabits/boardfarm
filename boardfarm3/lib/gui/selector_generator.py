@@ -413,7 +413,7 @@ class SelectorGenerator:
             elem_node: Element node dictionary
             
         Returns:
-            Dictionary with 'by' and 'selector' keys
+            Dictionary with 'by', 'selector', and enhanced metadata keys (Phase 5.1)
         """
         locator_type = elem_node.get("locator_type", "css_selector")
         locator_value = elem_node.get("locator_value", "")
@@ -431,10 +431,30 @@ class SelectorGenerator:
         elif locator_value.startswith("//") or locator_value.startswith("(//"):
             by_strategy = "xpath"
         
-        return {
+        entry = {
             "by": by_strategy,
             "selector": selector,
         }
+        
+        # Phase 5.1: Include enhanced metadata for semantic search
+        # These attributes enable find_element_by_function() to locate elements
+        # by their functional purpose even when IDs/names change
+        
+        metadata_fields = [
+            "text", "title", "aria_label", "data_action", "data_target",
+            "onclick_hint", "role", "data_toggle", "data_dismiss",
+            "placeholder", "value", "autocomplete",
+            "button_id", "button_class", "button_type",
+            "input_id", "input_type", "name",
+            "select_id", "link_id", "link_class", "href"
+        ]
+        
+        for field in metadata_fields:
+            value = elem_node.get(field)
+            if value:  # Only include non-None, non-empty values
+                entry[field] = value
+        
+        return entry
     
     def _sanitize_name(self, name: str) -> str:
         """Convert a string into a valid YAML key.

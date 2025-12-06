@@ -97,6 +97,140 @@ acs2 = bf_context.devices.axirosacs
 acs2.gui.reboot_device()     # Different UI, same test interface
 ```
 
+### Task-Oriented Template Pattern
+
+Following the same pattern as `ACSNBI`, the `ACSGUI` template defines **task-oriented methods** that describe business operations, not UI navigation.
+
+#### ✅ Good: Task-Oriented Methods
+
+These methods describe **WHAT to accomplish**:
+
+```python
+class ACSGUI(ABC):
+    @abstractmethod
+    def reboot_device_via_gui(self, cpe_id: str) -> bool:
+        """Reboot a device via the GUI."""
+        
+    @abstractmethod
+    def get_device_status(self, cpe_id: str) -> dict[str, str]:
+        """Get device status information."""
+        
+    @abstractmethod
+    def set_device_parameter_via_gui(self, cpe_id: str, parameter: str, value: str) -> bool:
+        """Set a device parameter via GUI."""
+```
+
+**Benefits:**
+- ✅ Vendor-neutral - works for any ACS (GenieACS, Axiros, etc.)
+- ✅ Test clarity - `reboot_device_via_gui(cpe_id)` clearly states intent
+- ✅ Encapsulation - navigation details hidden in implementation
+- ✅ Consistent - matches proven `ACSNBI` pattern
+
+#### ❌ Bad: UI-Structure-Oriented Methods
+
+These methods expose **HOW to navigate the UI**:
+
+```python
+# DON'T DO THIS - exposes UI structure
+class ACSGUI(ABC):
+    @abstractmethod
+    def navigate_to_device_list(self) -> None:
+        """Navigate to device list page."""
+        
+    @abstractmethod
+    def navigate_to_device_details(self, cpe_id: str) -> None:
+        """Navigate to device details page."""
+        
+    @abstractmethod
+    def click_reboot_button(self) -> None:
+        """Click the reboot button."""
+```
+
+**Problems:**
+- ❌ Not vendor-neutral - assumes specific UI structure
+- ❌ Test verbosity - requires multiple calls for one task
+- ❌ Brittle - UI restructure breaks test interface
+- ❌ Low-level - tests describe navigation, not intent
+
+#### Example: Same Task, Different Approaches
+
+**Task-Oriented (Recommended):**
+```python
+# Test code - clear intent
+def test_reboot_device(acs, cpe_id):
+    acs.gui.reboot_device_via_gui(cpe_id)
+    assert acs.gui.verify_device_online(cpe_id, timeout=120)
+```
+
+**UI-Structure-Oriented (Not Recommended):**
+```python
+# Test code - exposes navigation
+def test_reboot_device(acs, cpe_id):
+    acs.gui.navigate_to_device_list()
+    acs.gui.search_device(cpe_id)
+    acs.gui.navigate_to_device_details(cpe_id)
+    acs.gui.click_actions_menu()
+    acs.gui.click_reboot_option()
+    acs.gui.confirm_reboot()
+    # ... now need to wait and verify
+```
+
+#### Implementation: Semantic Helpers
+
+Device-specific implementations use **semantic element search** to absorb UI changes:
+
+```python
+class GenieAcsGUI(ACSGUI):
+    """GenieACS GUI implementation."""
+    
+    def reboot_device_via_gui(self, cpe_id: str) -> bool:
+        """Reboot device via GenieACS GUI."""
+        # 1. Navigate (encapsulated)
+        self.navigate_path(f"Path_Home_to_DeviceDetails", cpe_id=cpe_id)
+        
+        # 2. Find reboot button (semantic search - self-healing)
+        reboot_btn = self.find_element_by_function(
+            element_type="button",
+            function_keywords=["reboot", "restart", "reset"],
+            page="device_details_page",
+            fallback_name="reboot"  # Safety net
+        )
+        
+        # 3. Execute action
+        reboot_btn.click()
+        
+        # 4. Confirm modal (if present)
+        confirm_btn = self.find_element_by_function(
+            element_type="button",
+            function_keywords=["confirm", "yes", "ok"],
+            page="reboot_modal",
+            fallback_name="confirm"
+        )
+        confirm_btn.click()
+        
+        return True
+```
+
+**Key Features:**
+1. **Public API** (`reboot_device_via_gui`) is task-oriented and stable
+2. **Navigation** is encapsulated using `navigate_path()` with YAML artifacts
+3. **Element finding** uses semantic search for self-healing
+4. **Fallback names** provide safety net if semantic search fails
+
+#### Why This Pattern?
+
+This approach provides the optimal balance:
+
+| Aspect | Task-Oriented | UI-Structure-Oriented |
+|--------|---------------|----------------------|
+| **Vendor Portability** | ✅ High - works for any ACS | ❌ Low - assumes specific UI |
+| **Test Readability** | ✅ Clear business intent | ❌ Navigation noise |
+| **Maintenance** | ✅ Implementation changes, not interface | ❌ Interface changes with UI |
+| **Consistency** | ✅ Matches NBI pattern | ❌ Different from NBI |
+| **Self-Healing** | ✅ Semantic search absorbs changes | ❌ Breaks on any change |
+
+See `boardfarm3/templates/acs/acs_gui.py` for the complete ACSGUI template with 18 task-oriented methods.
+
 ## Architecture
 
 The framework is built around a **graph-based Page Object Model (POM)**:

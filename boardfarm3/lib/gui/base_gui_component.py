@@ -46,6 +46,7 @@ class BaseGuiComponent:
         "id": By.ID,
         "name": By.NAME,
         "xpath": By.XPATH,
+        "css": By.CSS_SELECTOR,  # Alias for css_selector
         "css_selector": By.CSS_SELECTOR,
         "class_name": By.CLASS_NAME,
         "tag_name": By.TAG_NAME,
@@ -317,3 +318,220 @@ class BaseGuiComponent:
                 f"Unknown action '{action}' in step {step_idx} of path '{path_name}'. "
                 f"Supported actions: click, type, wait"
             )
+    
+    def find_element_by_function(
+        self,
+        element_type: str,
+        function_keywords: list[str],
+        page: str | None = None,
+        fallback_name: str | None = None,
+        timeout: int | None = None,
+    ) -> WebElement:
+        """Find element by functional keywords with fallback to explicit name.
+        
+        This method enables self-healing tests by searching element metadata
+        for functional matches using scoring. Even when element IDs/names change,
+        tests can find elements by their purpose.
+        
+        Phase 5.2: Semantic element search with scoring algorithm.
+        
+        Args:
+            element_type: Element type ("button", "input", "link", "select")
+            function_keywords: Keywords indicating function (e.g., ["reboot", "restart"])
+            page: Page to search (uses current page if None)
+            fallback_name: Explicit element name to use if semantic search fails
+            timeout: Optional custom timeout for element location
+            
+        Returns:
+            WebElement matching the function
+            
+        Raises:
+            ValueError: If page not found in selectors
+            KeyError: If no element matches function and no fallback provided
+            
+        Example:
+            >>> # Search for reboot button by function
+            >>> btn = gui.find_element_by_function(
+            ...     element_type="button",
+            ...     function_keywords=["reboot", "restart", "reset"],
+            ...     page="device_details_page",
+            ...     fallback_name="reboot"
+            ... )
+        """
+        page = page or self._get_current_page()
+        
+        # Validate page exists
+        if page not in self.selectors:
+            available_pages = list(self.selectors.keys())
+            raise ValueError(
+                f"Page '{page}' not found in selectors. "
+                f"Available pages: {available_pages}"
+            )
+        
+        # Get all elements of this type on the page
+        element_group = f"{element_type}s"  # buttons, inputs, links, selects
+        elements = self.selectors[page].get(element_group, {})
+        
+        if not elements:
+            _LOGGER.warning("No %s found on page '%s'", element_group, page)
+        
+        # Search for functional matches
+        candidates = []
+        for elem_name, elem_data in elements.items():
+            score = self._calculate_functional_match_score(
+                elem_data, function_keywords, element_type
+            )
+            if score > 0:
+                candidates.append((elem_name, score, elem_data))
+        
+        if candidates:
+            # Sort by score (highest first)
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            best_match = candidates[0]
+            _LOGGER.info(
+                "Semantic search found '%s' for keywords %s (score: %d)",
+                best_match[0], function_keywords, best_match[1]
+            )
+            
+            # Build selector path and find element
+            selector_path = f"{page}.{element_group}.{best_match[0]}"
+            return self._find_element(selector_path, timeout=timeout)
+        
+        # Fallback to explicit name if semantic search fails
+        if fallback_name and fallback_name in elements:
+            _LOGGER.info(
+                "Semantic search failed, using fallback name '%s'", 
+                fallback_name
+            )
+            selector_path = f"{page}.{element_group}.{fallback_name}"
+            return self._find_element(selector_path, timeout=timeout)
+        
+        # No match found
+        raise KeyError(
+            f"No {element_type} found matching {function_keywords} on page '{page}' "
+            f"(searched {len(elements)} elements). "
+            f"Fallback name '{fallback_name}' also not found." if fallback_name 
+            else f"No {element_type} found matching {function_keywords} on page '{page}' "
+                 f"(searched {len(elements)} elements, no fallback provided)."
+        )
+    
+    def _calculate_functional_match_score(
+        self, 
+        elem_data: dict, 
+        keywords: list[str],
+        element_type: str
+    ) -> int:
+        """Calculate how well element matches functional keywords.
+        
+        Scoring algorithm (Phase 5.2):
+        - data-action (exact): 100 points
+        - text (exact): 50 points
+        - text (partial): 25 points
+        - id (contains): 30 points
+        - title/aria-label (contains): 20 points
+        - class (contains): 10 points
+        
+        Args:
+            elem_data: Element data from selectors.yaml
+            keywords: List of functional keywords
+            element_type: Type of element (for context)
+            
+        Returns:
+            Score (higher = better match, 0 = no match)
+        """
+        score = 0
+        
+        # Normalize keywords for case-insensitive matching
+        keywords_lower = [kw.lower() for kw in keywords]
+        
+        # Extract metadata attributes (Phase 5.1 captured these)
+        text = (elem_data.get("text") or "").lower()
+        title = (elem_data.get("title") or "").lower()
+        aria_label = (elem_data.get("aria_label") or "").lower()
+        data_action = (elem_data.get("data_action") or "").lower()
+        
+        # Element-specific IDs
+        elem_id = (
+            elem_data.get("button_id") or 
+            elem_data.get("input_id") or 
+            elem_data.get("select_id") or 
+            elem_data.get("link_id") or 
+            ""
+        ).lower()
+        
+        # Element-specific classes
+        elem_class = (
+            elem_data.get("button_class") or 
+            elem_data.get("link_class") or 
+            elem_data.get("class") or 
+            ""
+        ).lower()
+        
+        # Additional attributes
+        placeholder = (elem_data.get("placeholder") or "").lower()
+        name = (elem_data.get("name") or "").lower()
+        href = (elem_data.get("href") or "").lower()
+        onclick_hint = (elem_data.get("onclick_hint") or "").lower()
+        
+        # Score each keyword
+        for kw in keywords_lower:
+            # Highest priority: data-action (explicit functional attribute)
+            if data_action and kw in data_action:
+                score += 100
+            
+            # High priority: exact match in text
+            if text:
+                if kw == text:
+                    score += 50
+                elif kw in text:
+                    score += 25
+            
+            # Medium-high priority: ID contains keyword
+            if elem_id and kw in elem_id:
+                score += 30
+            
+            # Medium priority: title/aria-label (descriptive)
+            if title and kw in title:
+                score += 20
+            if aria_label and kw in aria_label:
+                score += 20
+            
+            # Medium-low priority: placeholder (for inputs)
+            if placeholder and kw in placeholder:
+                score += 15
+            
+            # Lower priority: class name hints
+            if elem_class and kw in elem_class:
+                score += 10
+            
+            # Additional signals
+            if name and kw in name:
+                score += 10
+            if href and kw in href:
+                score += 10
+            if onclick_hint and kw in onclick_hint:
+                score += 5
+        
+        return score
+    
+    def _get_current_page(self) -> str:
+        """Determine current page from URL or page state.
+        
+        This is a simple implementation that can be overridden by
+        device-specific components for more sophisticated page detection.
+        
+        Returns:
+            Page name (defaults to first page in selectors)
+        """
+        # Simple implementation: return first page
+        # Device-specific components should override this for better page detection
+        if not self.selectors:
+            raise ValueError("No selectors loaded")
+        
+        pages = list(self.selectors.keys())
+        if not pages:
+            raise ValueError("No pages found in selectors")
+        
+        # Return first page as default
+        # TODO: Enhance with URL-based page detection in device-specific components
+        return pages[0]
