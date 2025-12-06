@@ -641,6 +641,41 @@ To add new features:
 
 Part of the Boardfarm test framework.
 
+## Semantic Element Search (Phase 5)
+
+**NEW:** Self-healing test capability through semantic element search!
+
+Instead of breaking when UI elements are renamed, the framework can find elements by their **functional purpose**:
+
+```python
+# Traditional (breaks when element renamed)
+btn = self.find_element("device_details_page", "buttons", "reboot")
+
+# Semantic (resilient to renames)
+btn = self.find_element_by_function(
+    element_type="button",
+    function_keywords=["reboot", "restart", "reset"],
+    page="device_details_page",
+    fallback_name="reboot"
+)
+```
+
+### Key Features
+
+1. **Enhanced Metadata Capture**: Discovery tool captures aria-label, data-action, onclick, and other functional attributes
+2. **Scoring Algorithm**: Weights different attributes (data-action=100, text=50, id=30, etc.) to find best match
+3. **Graceful Fallback**: Falls back to explicit name if semantic search fails
+4. **80%+ Self-Healing**: Most UI changes handled without code updates
+
+### Benefits
+
+- Element renames handled automatically
+- Text/label changes absorbed
+- CSS class/ID changes transparent
+- Better test resilience
+
+**See:** `SEMANTIC_SEARCH_OVERVIEW.md` in this directory for complete architecture and implementation guide.
+
 ## Support
 
 For questions or issues:
@@ -648,3 +683,4 @@ For questions or issues:
 - Review tool-specific READMEs
 - Check NETWORKX_GRAPH_ARCHITECTURE.md for technical details
 - See boardfarm-bdd/docs/UI_Testing_Guide.md for test author perspective
+- **NEW:** See SEMANTIC_SEARCH_OVERVIEW.md for self-healing tests

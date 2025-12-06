@@ -254,13 +254,12 @@ boardfarm/unittests/lib/gui/
 boardfarm/boardfarm3/lib/gui/
 ├── NETWORKX_GRAPH_ARCHITECTURE.md    (Architecture spec)
 ├── REFACTORING_COMPLETE.md           (Phase 1 & 2 summary)
-└── IMPLEMENTATION_SUMMARY.md         (This file)
-
-.agent/memory_bank/
-├── PHASE_1_2_SUCCESS.md              (Phase 1 & 2 details)
-├── PHASE_3_COMPLETE.md               (Phase 3 details)
-├── NETWORKX_DECISION.md              (Decision rationale)
-└── ADVANCED_FEATURES_DECISION.md     (Why modals/forms are core)
+├── IMPLEMENTATION_SUMMARY.md         (This file)
+├── PATTERN_SKIPPING.md               (Pattern detection guide)
+├── README_UI_DISCOVERY.md            (Discovery tool user guide)
+├── README_SELECTOR_GENERATOR.md      (Selector generation guide)
+├── README_navigation_generator.md    (Navigation generation guide)
+└── SEMANTIC_SEARCH_OVERVIEW.md       (Self-healing tests guide)
 ```
 
 ### Generated Artifacts (Examples)
