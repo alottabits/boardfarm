@@ -400,6 +400,223 @@ def reboot_device(bf_context):
     acs.gui.reboot_device()  # Standard interface
 ```
 
+## Configuration: Optional GUI Initialization
+
+### Overview
+
+GUI testing is **completely optional** in Boardfarm. Devices work perfectly with just machine to machine API's / NBI (Northbound Interface). GUI components are only initialized when configured in the device config.
+
+### Config-Driven Approach
+
+GUI artifact paths are specified in the boardfarm device configuration:
+
+```json
+{
+    "name": "genieacs",
+    "type": "bf_acs",
+    "ipaddr": "localhost",
+    "http_port": 7557,
+    "http_username": "admin",
+    "http_password": "admin",
+    "gui_selector_file": "bf_config/gui_artifacts/genieacs/selectors.yaml",
+    "gui_navigation_file": "bf_config/gui_artifacts/genieacs/navigation.yaml",
+    "gui_headless": true,
+    "gui_default_timeout": 30
+}
+```
+
+### Configuration Fields in case the GUI is intended to be used
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `gui_selector_file` | Yes (for GUI) | - | Path to selectors.yaml |
+| `gui_navigation_file` | Yes (for GUI) | - | Path to navigation.yaml |
+| `gui_base_url` | No | `http://{ipaddr}:{http_port}` | Base URL for GUI |
+| `gui_headless` | No | `true` | Run browser in headless mode |
+| `gui_default_timeout` | No | `20` | Element wait timeout (seconds) |
+
+### Without GUI Testing (NBI Only)
+
+Simply omit the GUI config fields:
+
+```json
+{
+    "name": "genieacs",
+    "type": "bf_acs",
+    "ipaddr": "localhost",
+    "http_port": 7557,
+    "http_username": "admin",
+    "http_password": "admin"
+}
+```
+
+The device works perfectly - only NBI methods are available.
+
+### Initialization Pattern
+
+**Device Class:**
+```python
+class GenieACS(LinuxDevice, ACS):
+    def __init__(self, config: dict, cmdline_args: Namespace) -> None:
+        super().__init__(config, cmdline_args)
+        self._nbi = GenieAcsNBI(self)
+        self._gui = GenieAcsGUI(self)  # Always create, but don't initialize
+
+    @hookimpl
+    def boardfarm_skip_boot(self) -> None:
+        # Always initialize NBI
+        self.nbi.initialize()
+        
+        # Optionally initialize GUI (only if configured)
+        if self.gui.is_gui_configured():
+            try:
+                self.gui.initialize()
+                _LOGGER.info("GUI component initialized")
+            except Exception as e:
+                _LOGGER.warning("GUI initialization failed: %s", e)
+```
+
+**GUI Component:**
+```python
+class GenieAcsGUI(ACSGUI):
+    def __init__(self, device: GenieACS) -> None:
+        super().__init__(device)
+        self._driver = None
+        self._base_component = None
+        
+        # Read artifact paths from config (optional)
+        self._selector_file = self.config.get("gui_selector_file")
+        self._navigation_file = self.config.get("gui_navigation_file")
+    
+    def is_gui_configured(self) -> bool:
+        """Check if GUI testing is configured."""
+        return bool(self._selector_file and self._navigation_file)
+    
+    def is_initialized(self) -> bool:
+        """Check if GUI component is initialized."""
+        return bool(self._driver and self._base_component)
+    
+    def initialize(self, driver=None) -> None:
+        """Initialize GUI component (only if configured)."""
+        if not self.is_gui_configured():
+            raise ValueError("GUI not configured in device config")
+        
+        # Create Selenium driver
+        if driver is None:
+            from selenium import webdriver
+            options = webdriver.ChromeOptions()
+            if self.config.get("gui_headless", True):
+                options.add_argument("--headless")
+            driver = webdriver.Chrome(options=options)
+        
+        self._driver = driver
+        
+        # Initialize BaseGuiComponent with artifacts
+        from boardfarm3.lib.gui import BaseGuiComponent
+        self._base_component = BaseGuiComponent(
+            driver=self._driver,
+            selector_file=self._selector_file,
+            navigation_file=self._navigation_file,
+            default_timeout=self.config.get("gui_default_timeout", 20)
+        )
+    
+    def _ensure_initialized(self) -> None:
+        """Validate GUI is ready before use."""
+        if not self.is_gui_configured():
+            raise ValueError("GUI not configured in device config")
+        if not self.is_initialized():
+            raise RuntimeError("GUI not initialized. Call gui.initialize() first")
+    
+    # All task-oriented methods call _ensure_initialized() first
+    def login(self, username=None, password=None) -> bool:
+        self._ensure_initialized()
+        # ... implementation
+```
+
+### Usage in BDD Tests
+
+**Check availability before use:**
+
+```python
+@given("the ACS GUI is available")
+def step_acs_gui_available(bf_context):
+    """Ensure ACS GUI is initialized and accessible."""
+    acs = bf_context.device_manager.get_device_by_name("genieacs")
+    
+    # Skip test if GUI not configured
+    if not acs.gui.is_gui_configured():
+        pytest.skip("GUI testing not configured for this device")
+    
+    # Initialize if not already done
+    if not acs.gui.is_initialized():
+        acs.gui.initialize()
+    
+    # Verify access
+    assert acs.gui.is_logged_in() or acs.gui.login()
+
+
+@when("I reboot the device {cpe_id} via GUI")
+def step_reboot_via_gui(bf_context, cpe_id):
+    """Reboot device using ACS GUI."""
+    acs = bf_context.device_manager.get_device_by_name("genieacs")
+    success = acs.gui.reboot_device_via_gui(cpe_id)
+    assert success
+```
+
+**Conditional usage (prefer GUI, fall back to NBI):**
+
+```python
+@when("I reboot the device {cpe_id}")
+def step_reboot_device(bf_context, cpe_id):
+    """Reboot device using best available method."""
+    acs = bf_context.device_manager.get_device_by_name("genieacs")
+    
+    if acs.gui.is_initialized():
+        _LOGGER.info("Using GUI to reboot device")
+        success = acs.gui.reboot_device_via_gui(cpe_id)
+    else:
+        _LOGGER.info("Using NBI to reboot device")
+        success = acs.nbi.reboot_device(cpe_id)
+    
+    assert success
+```
+
+### Artifact Organization
+
+Recommended directory structure:
+
+```
+boardfarm-bdd/
+  bf_config/
+    gui_artifacts/
+      genieacs/
+        selectors.yaml       # Generated from ui_discovery.py
+        navigation.yaml      # Generated from navigation_generator.py
+        ui_map.json          # Source data (keep for regeneration)
+      axiros/
+        selectors.yaml
+        navigation.yaml
+        ui_map.json
+    boardfarm_config_example.json  # Device configs reference artifacts
+```
+
+### Benefits
+
+✅ **Zero Breaking Changes** - Existing configs work unchanged  
+✅ **Progressive Enhancement** - Add GUI testing when ready  
+✅ **Clear Error Messages** - Helpful guidance when GUI unavailable  
+✅ **Environment Flexibility** - Different configs for dev/test/ci  
+✅ **Graceful Degradation** - Tests fall back to NBI if GUI unavailable  
+✅ **CI/CD Friendly** - Easy to disable/enable per environment  
+
+### Migration Path
+
+1. **Current State:** Devices use NBI only (no changes needed)
+2. **Generate Artifacts:** Run discovery tools for devices needing GUI
+3. **Update Config:** Add `gui_selector_file` and `gui_navigation_file`
+4. **Enable GUI:** Device automatically initializes GUI on boot
+5. **Create Tests:** Write GUI-specific scenarios or enhance existing ones
+
 ## Workflow Options
 
 ### Option 1: Manual Workflow (Test Suite Owned)
