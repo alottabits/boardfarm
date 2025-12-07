@@ -489,39 +489,152 @@ class GenieAcsGUI(ACSGUI):
     - Semantic element search for self-healing tests
     - Generated selectors.yaml and navigation.yaml artifacts
     - BaseGuiComponent for UI interaction
+    - Config-driven optional initialization
     
-    Prerequisites:
-    - Run ui_discovery.py on GenieACS to generate ui_map.json
-    - Run selector_generator.py to create selectors.yaml
-    - Run navigation_generator.py to create navigation.yaml
+    Configuration (optional, in boardfarm_config.json):
+        gui_selector_file: Path to selectors.yaml
+        gui_navigation_file: Path to navigation.yaml
+        gui_headless: Run browser in headless mode (default: true)
+        gui_default_timeout: Element wait timeout in seconds (default: 20)
     """
     
     def __init__(self, device: GenieACS) -> None:
         """Initialize GenieACS GUI component.
+        
+        GUI initialization is deferred until initialize() is called.
+        If GUI config is not provided, the component remains inactive.
         
         :param device: Parent GenieACS device
         """
         super().__init__(device)
         self._driver = None
         self._base_component = None
-        # TODO: Set these paths to actual generated artifacts
-        self._selector_file = None  # Path to selectors.yaml
-        self._navigation_file = None  # Path to navigation.yaml
+        
+        # Read artifact paths from config (optional)
+        self._selector_file = self.config.get("gui_selector_file")
+        self._navigation_file = self.config.get("gui_navigation_file")
+        self._gui_base_url = self.config.get("gui_base_url")
+        self._gui_timeout = self.config.get("gui_default_timeout", 20)
+        
+        # Auto-derive base URL if not explicitly set
+        if not self._gui_base_url:
+            self._gui_base_url = (
+                f"http://{self.config['ipaddr']}:{self.config['http_port']}"
+            )
+    
+    def is_gui_configured(self) -> bool:
+        """Check if GUI testing is configured for this device.
+        
+        :return: True if GUI artifacts are configured
+        """
+        return bool(self._selector_file and self._navigation_file)
+    
+    def is_initialized(self) -> bool:
+        """Check if GUI component is initialized.
+        
+        :return: True if driver and base component are ready
+        """
+        return bool(self._driver and self._base_component)
+    
+    def initialize(self, driver=None) -> None:
+        """Initialize GUI component with Selenium driver.
+        
+        Only initializes if GUI artifacts are configured in device config.
+        Safe to call multiple times (idempotent).
+        
+        :param driver: Selenium WebDriver instance (creates ChromeDriver if None)
+        :raises ValueError: If GUI artifacts not configured
+        :raises FileNotFoundError: If configured files don't exist
+        """
+        # Check if already initialized
+        if self.is_initialized():
+            _LOGGER.debug("GUI already initialized, skipping")
+            return
+        
+        # Check if GUI is configured
+        if not self.is_gui_configured():
+            err_msg = (
+                f"GUI testing not configured for device "
+                f"'{self.device.device_name}'. "
+                f"To enable GUI testing, add to device config:\n"
+                f"  'gui_selector_file': 'path/to/selectors.yaml',\n"
+                f"  'gui_navigation_file': 'path/to/navigation.yaml'\n\n"
+                f"Generate artifacts:\n"
+                f"1. ui_discovery.py --url {self._gui_base_url} "
+                f"--output ui_map.json\n"
+                f"2. selector_generator.py --input ui_map.json "
+                f"--output selectors.yaml\n"
+                f"3. navigation_generator.py --input ui_map.json "
+                f"--output navigation.yaml"
+            )
+            raise ValueError(err_msg)
+        
+        # Create driver if not provided
+        if driver is None:
+            from selenium import webdriver
+            options = webdriver.ChromeOptions()
+            # Add headless mode for CI/CD
+            if self.config.get("gui_headless", True):
+                options.add_argument("--headless")
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-dev-shm-usage")
+            driver = webdriver.Chrome(options=options)
+        
+        self._driver = driver
+        
+        # Initialize BaseGuiComponent with artifacts from config
+        from boardfarm3.lib.gui import BaseGuiComponent
+        self._base_component = BaseGuiComponent(
+            driver=self._driver,
+            selector_file=self._selector_file,
+            navigation_file=self._navigation_file,
+            default_timeout=self._gui_timeout
+        )
+        
+        _LOGGER.info(
+            "GenieACS GUI initialized with selectors=%s, navigation=%s",
+            self._selector_file,
+            self._navigation_file
+        )
+    
+    def close(self) -> None:
+        """Close GUI component and quit Selenium driver.
+        
+        Safe to call even if not initialized.
+        """
+        if self._driver:
+            try:
+                self._driver.quit()
+            except Exception as e:
+                _LOGGER.warning("Error closing Selenium driver: %s", e)
+            finally:
+                self._driver = None
+                self._base_component = None
     
     def _ensure_initialized(self) -> None:
         """Ensure Selenium driver and BaseGuiComponent are initialized.
         
-        Raises:
-            NotImplementedError: If GUI testing is not yet configured
+        Provides helpful error message based on configuration state.
+        
+        :raises RuntimeError: If GUI component not initialized
+        :raises ValueError: If GUI not configured
         """
-        if self._driver is None or self._base_component is None:
-            raise NotImplementedError(
-                "GenieACS GUI component not yet initialized. "
-                "Please run UI discovery and generate artifacts:\n"
-                "1. ui_discovery.py --url <genieacs_url> --output ui_map.json\n"
-                "2. selector_generator.py --input ui_map.json --output selectors.yaml\n"
-                "3. navigation_generator.py --input ui_map.json --output navigation.yaml"
+        if not self.is_gui_configured():
+            err_msg = (
+                f"GUI testing not configured for device "
+                f"'{self.device.device_name}'. "
+                f"Add 'gui_selector_file' and 'gui_navigation_file' "
+                f"to device config."
             )
+            raise ValueError(err_msg)
+
+        if not self.is_initialized():
+            err_msg = (
+                f"GUI component not initialized for device "
+                f"'{self.device.device_name}'. "
+                f"Call gui.initialize() before using GUI methods."
+            )
+            raise RuntimeError(err_msg)
     
     # ========================================================================
     # Authentication Methods
@@ -1135,7 +1248,7 @@ class GenieACS(LinuxDevice, ACS):
 
     @hookimpl
     def boardfarm_skip_boot(self) -> None:
-        """Boardfarm hook implementation to skip boot the ITCProvisioner."""
+        """Boardfarm hook implementation to skip boot the GenieACS."""
         _LOGGER.info(
             "Initializing %s(%s) device with skip-boot option",
             self.device_name,
@@ -1144,16 +1257,44 @@ class GenieACS(LinuxDevice, ACS):
         # Only connect console if SSH access is configured
         if self._config.get("ipaddr") and self._config.get("connection_type"):
             self._connect()
+        
+        # Always initialize NBI
         self.nbi.initialize()
+        
+        # Optionally initialize GUI (only if configured)
+        if self.gui.is_gui_configured():
+            try:
+                self.gui.initialize()
+                _LOGGER.info("GUI component initialized successfully")
+            except Exception as e:
+                _LOGGER.warning(
+                    "GUI initialization failed (continuing without GUI): %s", e
+                )
+        else:
+            _LOGGER.debug("GUI not configured, skipping GUI initialization")
 
     @hookimpl
     def boardfarm_server_boot(self) -> None:
-        """Boardfarm hook implementation to boot the ITCProvisioner."""
+        """Boardfarm hook implementation to boot the GenieACS."""
         _LOGGER.info("Booting %s(%s) device", self.device_name, self.device_type)
         # Only connect console if SSH access is configured
         if self._config.get("ipaddr") and self._config.get("connection_type"):
             self._connect()
+        
+        # Always initialize NBI
         self.nbi.initialize()
+        
+        # Optionally initialize GUI (only if configured)
+        if self.gui.is_gui_configured():
+            try:
+                self.gui.initialize()
+                _LOGGER.info("GUI component initialized successfully")
+            except Exception as e:
+                _LOGGER.warning(
+                    "GUI initialization failed (continuing without GUI): %s", e
+                )
+        else:
+            _LOGGER.debug("GUI not configured, skipping GUI initialization")
 
     @hookimpl
     def boardfarm_shutdown_device(self) -> None:
@@ -1161,6 +1302,7 @@ class GenieACS(LinuxDevice, ACS):
         _LOGGER.info("Shutdown %s(%s) device", self.device_name, self.device_type)
         self._disconnect()
         self.nbi.close()
+        self.gui.close()  # Safe to call even if not initialized
 
     @hookimpl
     def contingency_check(self, env_req: dict[str, Any]) -> None:
