@@ -429,11 +429,16 @@ GUI artifact paths are specified in the boardfarm device configuration:
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `gui_selector_file` | Yes (for GUI) | - | Path to selectors.yaml |
-| `gui_navigation_file` | Yes (for GUI) | - | Path to navigation.yaml |
+| `gui_selector_file` | Yes (for GUI) | - | Path to selectors.yaml (relative to working directory) |
+| `gui_navigation_file` | Yes (for GUI) | - | Path to navigation.yaml (relative to working directory) |
 | `gui_base_url` | No | `http://{ipaddr}:{http_port}` | Base URL for GUI |
 | `gui_headless` | No | `true` | Run browser in headless mode |
 | `gui_default_timeout` | No | `20` | Element wait timeout (seconds) |
+
+**Path Resolution:**
+- File paths are resolved relative to the **current working directory** (where pytest is executed)
+- **Not** relative to the config file's location
+- Example: If running from `boardfarm-bdd/`, use `bf_config/gui_artifacts/genieacs/selectors.yaml`
 
 ### Without GUI Testing (NBI Only)
 
@@ -586,19 +591,32 @@ def step_reboot_device(bf_context, cpe_id):
 Recommended directory structure:
 
 ```
-boardfarm-bdd/
+boardfarm-bdd/                           # ← Working directory (run pytest from here)
   bf_config/
+    boardfarm_config_example.json        # Config file location
     gui_artifacts/
       genieacs/
-        selectors.yaml       # Generated from ui_discovery.py
-        navigation.yaml      # Generated from navigation_generator.py
-        ui_map.json          # Source data (keep for regeneration)
+        selectors.yaml                   # Generated from ui_discovery.py
+        navigation.yaml                  # Generated from navigation_generator.py
+        ui_map.json                      # Source data (keep for regeneration)
       axiros/
         selectors.yaml
         navigation.yaml
         ui_map.json
-    boardfarm_config_example.json  # Device configs reference artifacts
 ```
+
+**Configuration Example:**
+```json
+{
+    "gui_selector_file": "bf_config/gui_artifacts/genieacs/selectors.yaml",
+    "gui_navigation_file": "bf_config/gui_artifacts/genieacs/navigation.yaml"
+}
+```
+
+**Path Resolution:**
+- Paths are relative to the **current working directory** (where pytest runs), not the config file
+- When running `pytest` from `boardfarm-bdd/`, the path resolves correctly
+- This follows standard Python `Path` resolution behavior
 
 ### Benefits
 
