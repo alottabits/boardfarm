@@ -401,7 +401,8 @@ class UIDiscoveryTool:
         
         Args:
             login_url: Optional custom login URL. If not provided,
-                      will attempt to find login page from base_url.
+                      assumes we're already on the login page or will
+                      attempt to find it from base_url.
         
         Raises:
             TimeoutException: If login elements are not found
@@ -410,12 +411,16 @@ class UIDiscoveryTool:
             logger.info("No credentials provided, skipping login")
             return
 
+        # Only navigate if login_url is explicitly provided
         if login_url:
             logger.info("Navigating to custom login URL: %s", login_url)
             self.driver.get(login_url)
         else:
-            logger.info("Navigating to base URL: %s", self.base_url)
-            self.driver.get(self.base_url)
+            current_url = self.driver.current_url
+            # Check if we're already on a login page
+            if '/login' not in current_url.lower():
+                logger.info("Not on login page, navigating to base URL: %s", self.base_url)
+                self.driver.get(self.base_url)
 
         try:
             # Check if we need to click a login link first
@@ -524,6 +529,7 @@ class UIDiscoveryTool:
         start_url: str | None = None,
         login_first: bool = True,
         login_url: str | None = None,
+        discover_login_page: bool = True,
     ) -> dict[str, Any]:
         """Crawl the UI using breadth-first search with leaf tracking.
         
@@ -534,6 +540,11 @@ class UIDiscoveryTool:
             start_url: Optional starting URL. If not provided, uses base_url
             login_first: Whether to login before crawling
             login_url: Optional custom login URL
+            discover_login_page: Whether to discover login page before logging in.
+                                If True, captures login page elements (username,
+                                password inputs, login button) in the graph before
+                                authenticating. This ensures the complete state
+                                machine is captured (login → logout cycle).
             
         Returns:
             Dictionary containing:
@@ -545,8 +556,50 @@ class UIDiscoveryTool:
                 - discovery_stats: Crawl statistics
         """
         try:
-            # Login if needed
-            if login_first:
+            # NEW: Discover login page BEFORE logging in
+            if login_first and discover_login_page:
+                # Navigate to login page
+                if login_url:
+                    logger.info("Navigating to login URL: %s", login_url)
+                    self.driver.get(login_url)
+                else:
+                    logger.info("Navigating to base URL: %s", self.base_url)
+                    self.driver.get(self.base_url)
+                    
+                # Wait for page to load
+                self.wait.until(
+                    lambda d: d.execute_script("return document.readyState") == "complete"
+                )
+                time.sleep(0.5)
+                
+                login_page_url = self.driver.current_url
+                logger.info("Discovering login page: %s", login_page_url)
+                
+                # Normalize URL
+                normalized_login_url = self._normalize_url(login_page_url)
+                
+                # Discover the login page (add to graph)
+                page_type = self._classify_page(normalized_login_url)
+                self.graph.add_page(
+                    url=normalized_login_url,
+                    title=self.driver.title,
+                    page_type=page_type
+                )
+                
+                # Discover elements on login page
+                self._discover_elements(normalized_login_url)
+                
+                # Mark as visited
+                self.visited_urls.add(normalized_login_url)
+                
+                logger.info("Login page discovered successfully")
+                
+                # NOW perform login (don't navigate again)
+                self.login(login_url=None)
+                start_url = start_url or self.driver.current_url
+                
+            elif login_first:
+                # Old behavior: just login without discovering login page
                 self.login(login_url=login_url)
                 start_url = start_url or self.driver.current_url
             else:
@@ -1760,6 +1813,11 @@ def main():
         help="Skip login step",
     )
     parser.add_argument(
+        "--skip-login-discovery",
+        action="store_true",
+        help="Skip discovering login page elements (default: discover login page)",
+    )
+    parser.add_argument(
         "--disable-pattern-detection",
         action="store_true",
         help="Disable URL pattern detection (default: enabled)",
@@ -1820,6 +1878,7 @@ def main():
     ui_map = tool.discover_site(
         login_first=not args.no_login,
         login_url=args.login_url,
+        discover_login_page=not args.skip_login_discovery,
     )
 
     # Save to file
