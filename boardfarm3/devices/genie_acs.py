@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from argparse import Namespace
 from datetime import datetime, timedelta, timezone
 from time import time as time_now
@@ -482,20 +483,23 @@ class GenieAcsNBI(ACSNBI):
 
 
 class GenieAcsGUI(ACSGUI):
-    """GenieACS GUI Implementation using semantic element search.
+    """GenieACS GUI Implementation using graph-based state machine navigation.
     
     This implementation uses:
     - Task-oriented methods from ACSGUI template
-    - Semantic element search for self-healing tests
-    - Generated selectors.yaml and navigation.yaml artifacts
-    - BaseGuiComponent for UI interaction
+    - BaseGuiComponent with ui_map.json as single source of truth
+    - Deterministic state tracking
+    - Dynamic pathfinding for navigation
     - Config-driven optional initialization
     
     Configuration (optional, in boardfarm_config.json):
-        gui_selector_file: Path to selectors.yaml
-        gui_navigation_file: Path to navigation.yaml
+        gui_graph_file: Path to ui_map.json (single source of truth)
         gui_headless: Run browser in headless mode (default: true)
         gui_default_timeout: Element wait timeout in seconds (default: 20)
+        
+    Legacy Configuration (deprecated, Phase 2 migration):
+        gui_selector_file: Path to selectors.yaml (no longer needed)
+        gui_navigation_file: Path to navigation.yaml (no longer needed)
     """
     
     def __init__(self, device: GenieACS) -> None:
@@ -508,43 +512,43 @@ class GenieAcsGUI(ACSGUI):
         """
         super().__init__(device)
         self._driver = None
-        self._base_component = None
+        self._graph_component = None  # BaseGuiComponent instance
         
-        # Read artifact paths from config (optional)
-        self._selector_file = self.config.get("gui_selector_file")
-        self._navigation_file = self.config.get("gui_navigation_file")
+        # Read artifact path from config (optional)
+        self._ui_graph_file = self.config.get("gui_graph_file")
         self._gui_base_url = self.config.get("gui_base_url")
         self._gui_timeout = self.config.get("gui_default_timeout", 20)
         
         # Auto-derive base URL if not explicitly set
         if not self._gui_base_url:
+            port = self.config.get("gui_port", 3000)
             self._gui_base_url = (
-                f"http://{self.config['ipaddr']}:{self.config['http_port']}"
+                f"http://{self.config['ipaddr']}:{port}"
             )
     
     def is_gui_configured(self) -> bool:
         """Check if GUI testing is configured for this device.
         
-        :return: True if GUI artifacts are configured
+        :return: True if UI graph file is configured
         """
-        return bool(self._selector_file and self._navigation_file)
+        return bool(self._ui_graph_file)
     
     def is_initialized(self) -> bool:
         """Check if GUI component is initialized.
         
-        :return: True if driver and base component are ready
+        :return: True if driver and graph component are ready
         """
-        return bool(self._driver and self._base_component)
+        return bool(self._driver and self._graph_component)
     
     def initialize(self, driver=None) -> None:
         """Initialize GUI component with Selenium driver.
         
-        Only initializes if GUI artifacts are configured in device config.
+        Only initializes if UI graph file is configured in device config.
         Safe to call multiple times (idempotent).
         
         :param driver: Selenium WebDriver instance (creates ChromeDriver if None)
-        :raises ValueError: If GUI artifacts not configured
-        :raises FileNotFoundError: If configured files don't exist
+        :raises ValueError: If UI graph file not configured
+        :raises FileNotFoundError: If UI graph file doesn't exist
         """
         # Check if already initialized
         if self.is_initialized():
@@ -557,15 +561,12 @@ class GenieAcsGUI(ACSGUI):
                 f"GUI testing not configured for device "
                 f"'{self.device.device_name}'. "
                 f"To enable GUI testing, add to device config:\n"
-                f"  'gui_selector_file': 'path/to/selectors.yaml',\n"
-                f"  'gui_navigation_file': 'path/to/navigation.yaml'\n\n"
-                f"Generate artifacts:\n"
-                f"1. ui_discovery.py --url {self._gui_base_url} "
-                f"--output ui_map.json\n"
-                f"2. selector_generator.py --input ui_map.json "
-                f"--output selectors.yaml\n"
-                f"3. navigation_generator.py --input ui_map.json "
-                f"--output navigation.yaml"
+                f"  'gui_graph_file': 'path/to/ui_map.json'\n\n"
+                f"Generate UI map:\n"
+                f"  python -m boardfarm3.lib.gui.ui_discovery \\\n"
+                f"    --url {self._gui_base_url} \\\n"
+                f"    --username admin --password admin \\\n"
+                f"    --output ui_map.json"
             )
             raise ValueError(err_msg)
         
@@ -582,19 +583,22 @@ class GenieAcsGUI(ACSGUI):
         
         self._driver = driver
         
-        # Initialize BaseGuiComponent with artifacts from config
-        from boardfarm3.lib.gui import BaseGuiComponent
-        self._base_component = BaseGuiComponent(
+        # Reduce Selenium's verbose logging (404s for element searches)
+        self._configure_selenium_logging()
+        
+        # Initialize BaseGuiComponent with UI graph from config
+        from boardfarm3.lib.gui.base_gui_component import BaseGuiComponent
+        self._graph_component = BaseGuiComponent(
             driver=self._driver,
-            selector_file=self._selector_file,
-            navigation_file=self._navigation_file,
+            ui_graph_file=self._ui_graph_file,
             default_timeout=self._gui_timeout
         )
         
         _LOGGER.info(
-            "GenieACS GUI initialized with selectors=%s, navigation=%s",
-            self._selector_file,
-            self._navigation_file
+            "GenieACS GUI initialized with ui_graph=%s (%d pages, %d elements)",
+            self._ui_graph_file,
+            len(self._graph_component._pages),
+            len(self._graph_component._elements)
         )
     
     def close(self) -> None:
@@ -609,7 +613,77 @@ class GenieAcsGUI(ACSGUI):
                 _LOGGER.warning("Error closing Selenium driver: %s", e)
             finally:
                 self._driver = None
-                self._base_component = None
+                self._graph_component = None
+    
+    def _configure_selenium_logging(self) -> None:
+        """Configure Selenium logging to reduce verbosity.
+        
+        Suppresses DEBUG-level 404 messages from element searches which
+        are expected when trying multiple selectors in sequence.
+        """
+        # Reduce logging from Selenium's remote connection
+        # This suppresses the verbose 404 responses when trying multiple selectors
+        selenium_logger = logging.getLogger("selenium.webdriver.remote.remote_connection")
+        selenium_logger.setLevel(logging.INFO)  # Only INFO and above
+        
+        _LOGGER.debug("Configured Selenium logging (remote_connection: INFO)")
+    
+    def _detect_current_page(self) -> str | None:
+        """Detect which page we're currently on based on URL hash.
+        
+        GenieACS uses hash-based routing (#!/page_name), so we can
+        determine the page from the URL. This allows us to use the
+        appropriate selectors from selectors.yaml efficiently.
+        
+        :return: Page name matching selectors.yaml keys, or None if unknown
+        """
+        try:
+            current_url = self._driver.current_url
+            _LOGGER.debug("Detecting page from URL: %s", current_url)
+            
+            # GenieACS URL format: http://host:port/#!/page_name
+            # Extract the hash fragment
+            if "#!/" in current_url:
+                hash_fragment = current_url.split("#!/")[1].split("?")[0]  # Remove query params
+                
+                # Map URL fragments to selectors.yaml page names
+                page_mapping = {
+                    "login": "login_page",
+                    "overview": "home_page",
+                    "devices": "device_list_page",
+                    "faults": "faults_page",
+                    "admin": "admin_page",
+                    "admin/presets": "presets_page",
+                    "admin/provisions": "provisions_page",
+                    "admin/virtualParameters": "virtual_parameters_page",
+                    "admin/files": "files_page",
+                    "admin/config": "config_page",
+                    "admin/permissions": "permissions_page",
+                    "admin/users": "users_page",
+                }
+                
+                # Check for device details (format: devices/ID)
+                if hash_fragment.startswith("devices/") and "/" in hash_fragment:
+                    return "device_details_page"
+                
+                # Direct mapping
+                if hash_fragment in page_mapping:
+                    page_name = page_mapping[hash_fragment]
+                    _LOGGER.debug("Detected page: %s", page_name)
+                    return page_name
+                
+                # Default for admin pages
+                if hash_fragment.startswith("admin"):
+                    _LOGGER.debug("Unknown admin page, defaulting to admin_page")
+                    return "admin_page"
+            
+            # Default to home_page if we're logged in but URL unclear
+            _LOGGER.debug("Could not detect specific page from URL")
+            return None
+            
+        except Exception as e:
+            _LOGGER.warning("Error detecting current page: %s", e)
+            return None
     
     def _ensure_initialized(self) -> None:
         """Ensure Selenium driver and BaseGuiComponent are initialized.
@@ -623,8 +697,7 @@ class GenieAcsGUI(ACSGUI):
             err_msg = (
                 f"GUI testing not configured for device "
                 f"'{self.device.device_name}'. "
-                f"Add 'gui_selector_file' and 'gui_navigation_file' "
-                f"to device config."
+                f"Add 'gui_graph_file' to device config."
             )
             raise ValueError(err_msg)
 
@@ -643,6 +716,8 @@ class GenieAcsGUI(ACSGUI):
     def login(self, username: str | None = None, password: str | None = None) -> bool:
         """Login to GenieACS GUI using form-based authentication.
         
+        Uses graph-based element finding with state tracking for deterministic navigation.
+        
         :param username: Username (uses config if None)
         :param password: Password (uses config if None)
         :return: True if login successful
@@ -653,95 +728,188 @@ class GenieAcsGUI(ACSGUI):
         password = password or self.config.get("http_password", "admin")
         
         # Navigate to login page
-        ip = self.config['ipaddr']
-        port = self.config['http_port']
-        login_url = f"http://{ip}:{port}/#!/login"
+        login_url = f"{self._gui_base_url}/#!/login"
         
         try:
+            _LOGGER.info("Navigating to login page: %s", login_url)
             self._driver.get(login_url)
             
-            # Find and fill username input (with explicit timeout)
-            username_input = self._base_component._find_element(
-                "login_page.inputs.username",
-                timeout=self.gui_default_timeout
+            # Set state to login_page
+            self._graph_component.set_state('login_page', via_action='navigate')
+            
+            # Find and fill username input
+            username_input = self._graph_component.find_element(
+                'login_page',
+                'username_input',
+                timeout=self._gui_timeout
             )
             username_input.clear()
             username_input.send_keys(username)
+            _LOGGER.debug("Entered username")
             
             # Find and fill password input
-            password_input = self._base_component._find_element(
-                "login_page.inputs.password",
-                timeout=self.gui_default_timeout
+            password_input = self._graph_component.find_element(
+                'login_page',
+                'password_input',
+                timeout=self._gui_timeout
             )
             password_input.clear()
             password_input.send_keys(password)
+            _LOGGER.debug("Entered password")
             
             # Find and click login button
-            login_btn = self._base_component._find_element(
-                "login_page.buttons.login",
-                timeout=self.gui_default_timeout
+            login_btn = self._graph_component.find_element(
+                'login_page',
+                'login_button',
+                timeout=self._gui_timeout
             )
             login_btn.click()
+            _LOGGER.debug("Clicked login button")
             
-            # Wait for redirect and verify login by checking for logout button
-            logout_btn = self._base_component.find_element_by_function(
-                element_type="button",
-                function_keywords=["logout", "log out", "sign out"],
-                page="home_page",
-                fallback_name="log_out",
-                timeout=10
-            )
-            if logout_btn:
+            # Wait for redirect away from login page
+            # Check that the username input disappears (proves we left login page)
+            time.sleep(0.5)  # Brief initial wait for redirect to start
+            
+            for i in range(10):  # Up to 5 seconds total
+                try:
+                    # If we can still find username input, we're still on login page
+                    self._graph_component.find_element('login_page', 'username_input', timeout=0.5)
+                    time.sleep(0.5)
+                except Exception:
+                    # Username input gone - we've left login page!
+                    _LOGGER.debug("Redirect complete, left login page")
+                    break
+            
+            # Set state to home_page (we've successfully redirected away from login)
+            self._graph_component.set_state('home_page', via_action='login_success')
+            
+            # Verify we can find the logout button on home page
+            try:
+                logout_btn = self._graph_component.find_element(
+                    'home_page',
+                    'log_out_button',
+                    timeout=10
+                )
                 _LOGGER.info("Successfully logged into GenieACS GUI")
                 return True
-            return False
+            except Exception as e:
+                _LOGGER.error("Login verification failed - could not find logout button: %s", e)
+                return False
+            
         except Exception as e:
             _LOGGER.error("Login failed: %s", e)
+            import traceback
+            _LOGGER.debug("Login error traceback: %s", traceback.format_exc())
             return False
     
     def logout(self) -> bool:
         """Logout from GenieACS GUI.
         
-        Clicks the logout button on the home page.
+        Uses state tracking to find the logout button on the current page,
+        then clicks it and updates state to login_page.
         
         :return: True if logout successful
         """
         self._ensure_initialized()
         
         try:
-            logout_btn = self._base_component.find_element_by_function(
-                element_type="button",
-                function_keywords=["logout", "log out", "sign out"],
-                page="home_page",
-                fallback_name="log_out"
+            # Get current state
+            current_state = self._graph_component.get_state()
+            if not current_state:
+                # Detect state from URL if not set
+                current_url = self._driver.current_url
+                if "#!/overview" in current_url:
+                    current_state = "home_page"
+                elif "#!/devices" in current_url and "#!/devices/" not in current_url:
+                    current_state = "device_list_page"
+                elif "#!/admin" in current_url:
+                    current_state = "admin_page"
+                else:
+                    # Default to home_page as logout button is usually there
+                    current_state = "home_page"
+                
+                self._graph_component.set_state(current_state, via_action='detected_from_url')
+                _LOGGER.debug("Detected current state: %s", current_state)
+            
+            # Find logout button on current page
+            logout_btn = self._graph_component.find_element(
+                current_state,
+                'log_out_button',
+                timeout=self._gui_timeout
             )
+            
+            # Click logout button
             logout_btn.click()
+            _LOGGER.debug("Clicked logout button")
+            
+            # Wait briefly for logout redirect
+            time.sleep(0.5)
+            
+            # Update state to login_page
+            self._graph_component.set_state('login_page', via_action='logout_success')
+            
             _LOGGER.info("Successfully logged out from GenieACS GUI")
             return True
+            
         except Exception as e:
             _LOGGER.error("Logout failed: %s", e)
+            import traceback
+            _LOGGER.debug("Logout error traceback: %s", traceback.format_exc())
             return False
     
     def is_logged_in(self) -> bool:
         """Check if currently logged into GenieACS GUI.
         
-        Checks for presence of logout button on home page.
+        Uses state tracking with validation: checks tracked state and verifies
+        it matches reality using the verify_page() method.
         
         :return: True if logged in
         """
         self._ensure_initialized()
         
         try:
-            # Check for presence of logout button on home page
-            self._base_component.find_element_by_function(
-                element_type="button",
-                function_keywords=["logout", "log out", "sign out"],
-                page="home_page",
-                fallback_name="log_out",
-                timeout=5
-            )
-            return True
-        except Exception:
+            current_url = self._driver.current_url
+            _LOGGER.debug("Checking login status, current URL: %s", current_url)
+            
+            # 1. Blank/uninitialized browser = definitely not logged in
+            if not current_url or current_url.startswith("data:") or current_url.startswith("about:"):
+                _LOGGER.debug("Browser on blank page, not logged in")
+                return False
+            
+            # 2. Check tracked state and validate it
+            current_state = self._graph_component.get_state()
+            
+            if current_state == 'login_page':
+                # Verify we're actually on login page
+                if self._graph_component.verify_page('login_page', timeout=2, update_state=False):
+                    _LOGGER.debug("Verified on login_page - not logged in")
+                    return False
+                else:
+                    _LOGGER.warning("State is login_page but verification failed")
+                    return False
+                    
+            elif current_state is not None:
+                # State indicates logged in - verify we're on that page
+                if self._graph_component.verify_page(current_state, timeout=2, update_state=False):
+                    _LOGGER.debug("Verified on %s - logged in", current_state)
+                    return True
+                else:
+                    _LOGGER.warning("State is %s but verification failed", current_state)
+                    # Fall through to URL check
+                    
+            # 3. No state or validation failed - check URL as fallback
+            if "/#!/login" in current_url:
+                _LOGGER.debug("URL indicates login page, not logged in")
+                return False
+            elif self._gui_base_url in current_url:
+                _LOGGER.debug("URL indicates GenieACS (not login), assuming logged in")
+                return True
+            else:
+                _LOGGER.debug("Unknown state and URL, assuming not logged in")
+                return False
+            
+        except Exception as e:
+            _LOGGER.warning("Error checking login status: %s", e)
             return False
     
     # ========================================================================
@@ -786,7 +954,7 @@ class GenieAcsGUI(ACSGUI):
             # Look for device link/row containing the CPE ID
             device_link = self._base_component._find_element(
                 f"devices_page.links.device_{cpe_id}",
-                timeout=self.gui_default_timeout
+                timeout=self._gui_timeout
             )
             return device_link is not None
         except Exception as e:
@@ -903,7 +1071,6 @@ class GenieAcsGUI(ACSGUI):
         """
         self._ensure_initialized()
         
-        import time
         start_time = time.time()
         
         while time.time() - start_time < timeout:
@@ -1095,7 +1262,7 @@ class GenieAcsGUI(ACSGUI):
             # This is a simplified version
             value_element = self._base_component._find_element(
                 f"parameters_page.values.{parameter}",
-                timeout=self.gui_default_timeout
+                timeout=self._gui_timeout
             )
             return value_element.text
         except Exception as e:

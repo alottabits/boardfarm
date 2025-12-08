@@ -1,18 +1,43 @@
-"""Base GUI Component for scalable UI testing.
+"""Base GUI Component - Graph-Based Single Source of Truth.
 
-This module provides a generic, reusable UI component that executes
-navigation paths defined in YAML configuration files. It implements
-the "Flat Name" architecture for maintainable UI testing.
+This component uses ONLY ui_map.json (the complete UI graph from discovery)
+as its data source. It builds efficient in-memory lookup structures for:
+- Element location by page
+- Navigation transitions
+- Dynamic pathfinding
+- State tracking
+
+This architecture uses a single-file approach that dynamically computes
+everything from the UI graph, replacing the previous three-file system
+(selectors.yaml, navigation.yaml, ui_map.json).
+
+Architecture:
+    ui_map.json (NetworkX graph format from discovery)
+        ↓
+    Parse once at initialization
+        ↓
+    Build in-memory structures:
+        - _pages: URL → page metadata
+        - _elements: element_id → element metadata
+        - _elements_by_page: page_url → {element_name: element_info}
+        - _transitions: (source_url, element_id) → target_url
+        ↓
+    Fast lookups + dynamic pathfinding + state tracking
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import time
+from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+)
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -25,28 +50,32 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class BaseGuiComponent:
-    """Generic, reusable UI component provided by the framework.
+    """Base GUI component using ui_map.json as single source of truth.
     
-    This class serves as the foundation for device-specific GUI components.
-    It loads UI selectors and navigation paths from YAML files and provides
-    a generic engine for executing named navigation paths.
-    
-    The architecture decouples test intent (stable) from UI implementation
-    (volatile) by externalizing selectors and navigation paths to YAML files.
+    This component uses a graph-based architecture that dynamically computes
+    navigation paths and element locations from the UI graph.
     
     Attributes:
         driver: Selenium WebDriver instance
-        wait: WebDriverWait instance for element waiting
-        selectors: Dictionary of UI element selectors loaded from YAML
-        navigation: Dictionary of navigation paths loaded from YAML
+        wait: WebDriverWait instance
+        _default_timeout: Default timeout for element waits
+        _pages: Dictionary mapping URL → page metadata
+        _elements: Dictionary mapping element_id → element metadata
+        _elements_by_page: Dictionary mapping page_url → {elem_name: elem_info}
+        _transitions: Dictionary mapping (source_url, elem_id) → target_url
+        _page_name_to_url: Dictionary mapping friendly_name → URL
+        _url_to_page_name: Dictionary mapping URL → friendly_name
+        _current_state: Current page (friendly name)
+        _current_url: Current page URL
+        _state_history: Navigation history
     """
 
-    # Mapping of selector types to Selenium By constants
+    # Mapping of locator types to Selenium By constants
     BY_MAPPING = {
         "id": By.ID,
         "name": By.NAME,
         "xpath": By.XPATH,
-        "css": By.CSS_SELECTOR,  # Alias for css_selector
+        "css": By.CSS_SELECTOR,
         "css_selector": By.CSS_SELECTOR,
         "class_name": By.CLASS_NAME,
         "tag_name": By.TAG_NAME,
@@ -57,481 +86,563 @@ class BaseGuiComponent:
     def __init__(
         self,
         driver: WebDriver,
-        selector_file: str | Path,
-        navigation_file: str | Path,
+        ui_graph_file: str | Path,
         default_timeout: int = 20,
     ):
-        """Initialize the BaseGuiComponent.
+        """Initialize GUI component from ui_map.json.
         
         Args:
             driver: Selenium WebDriver instance
-            selector_file: Path to selectors YAML file
-            navigation_file: Path to navigation YAML file
+            ui_graph_file: Path to ui_map.json (complete UI graph)
             default_timeout: Default timeout in seconds for element waits
             
         Raises:
-            FileNotFoundError: If selector or navigation files don't exist
-            yaml.YAMLError: If YAML files are malformed
+            FileNotFoundError: If ui_graph_file doesn't exist
+            ValueError: If ui_map.json is malformed
         """
         self.driver = driver
         self.wait = WebDriverWait(driver, default_timeout)
+        self._default_timeout = default_timeout
         
-        # Load selectors
-        selector_path = Path(selector_file)
-        if not selector_path.exists():
-            raise FileNotFoundError(f"Selector file not found: {selector_file}")
+        # In-memory lookup structures (built from ui_map.json)
+        self._pages: dict[str, dict] = {}                      # URL → page metadata
+        self._elements: dict[str, dict] = {}                   # element_id → element metadata
+        self._elements_by_page: dict[str, dict] = {}           # page_url → {elem_name: elem_info}
+        self._transitions: dict[tuple[str, str], str] = {}     # (source_url, elem_id) → target_url
+        self._page_name_to_url: dict[str, str] = {}            # friendly_name → URL
+        self._url_to_page_name: dict[str, str] = {}            # URL → friendly_name
         
-        with selector_path.open() as f:
-            self.selectors = yaml.safe_load(f)
-            if not self.selectors:
-                raise ValueError(f"Selector file is empty: {selector_file}")
+        # State tracking
+        self._current_state: str | None = None                 # Current page (friendly name)
+        self._current_url: str | None = None                   # Current page URL
+        self._state_history: list[dict] = []                   # Navigation history
         
-        # Load navigation paths
-        navigation_path = Path(navigation_file)
-        if not navigation_path.exists():
-            raise FileNotFoundError(f"Navigation file not found: {navigation_file}")
+        # Load and parse ui_map.json
+        self._load_ui_graph(ui_graph_file)
         
-        with navigation_path.open() as f:
-            self.navigation = yaml.safe_load(f)
-            if not self.navigation:
-                raise ValueError(f"Navigation file is empty: {navigation_file}")
+    def _load_ui_graph(self, graph_file: str | Path) -> None:
+        """Load ui_map.json and build in-memory lookup structures.
         
-        _LOGGER.info(
-            "Initialized BaseGuiComponent with selectors from %s and navigation from %s",
-            selector_file,
-            navigation_file,
-        )
-
-    def _get_locator(self, selector_path: str, **kwargs) -> tuple[str, str]:
-        """Parse dot-notation selector path and return Selenium locator tuple.
-        
-        This method traverses the selectors dictionary using dot notation
-        (e.g., "home_page.main_menu.devices_link") and returns the
-        corresponding Selenium locator.
+        This replaces the previous approach of loading selectors.yaml and
+        navigation.yaml. Everything is derived from the graph.
         
         Args:
-            selector_path: Dot-notated path to selector (e.g., "page.element")
-            **kwargs: Optional template variables for dynamic selectors
-            
-        Returns:
-            Tuple of (By type, selector string)
+            graph_file: Path to ui_map.json
             
         Raises:
-            KeyError: If selector path is not found
-            ValueError: If selector format is invalid
+            FileNotFoundError: If graph file doesn't exist
+            ValueError: If JSON is malformed
+        """
+        graph_path = Path(graph_file)
+        if not graph_path.exists():
+            raise FileNotFoundError(f"UI graph file not found: {graph_file}")
+            
+        _LOGGER.info("Loading UI graph from: %s", graph_file)
+        
+        with graph_path.open() as f:
+            ui_map = json.load(f)
+            
+        graph_data = ui_map.get('graph', {})
+        
+        if not graph_data:
+            raise ValueError(f"Invalid ui_map.json: missing 'graph' key")
+            
+        # Step 1: Parse all nodes (pages and elements)
+        for node in graph_data.get('nodes', []):
+            if node.get('node_type') == 'Page':
+                self._parse_page_node(node)
+            elif node.get('node_type') == 'Element':
+                self._parse_element_node(node)
+                
+        # Step 2: Parse all edges (containment and navigation)
+        for edge in graph_data.get('edges', []):
+            if edge.get('edge_type') == 'ON_PAGE':
+                self._parse_on_page_edge(edge)
+            elif edge.get('edge_type') == 'MAPS_TO':
+                self._parse_maps_to_edge(edge)
+                
+        _LOGGER.info(
+            "UI graph loaded: %d pages, %d elements, %d transitions",
+            len(self._pages),
+            len(self._elements),
+            len(self._transitions)
+        )
+        
+        # Log page mappings for debugging
+        for name, url in self._page_name_to_url.items():
+            _LOGGER.debug("Page mapping: %s → %s", name, url)
+            
+    def _parse_page_node(self, node: dict) -> None:
+        """Parse a Page node and create friendly name mapping.
+        
+        Example node:
+        {
+            "node_type": "Page",
+            "title": "Overview - GenieACS",
+            "page_type": "home",
+            "id": "http://127.0.0.1:3000/#!/overview"
+        }
+        
+        Args:
+            node: Page node dictionary from graph
+        """
+        page_url = node['id']
+        self._pages[page_url] = node
+        
+        # Initialize element container for this page
+        self._elements_by_page[page_url] = {}
+        
+        # Create friendly page name from URL
+        # URL: http://127.0.0.1:3000/#!/overview → page_name: "home_page"
+        # URL: http://127.0.0.1:3000/#!/devices → page_name: "device_list_page"
+        friendly_name = self._url_to_friendly_page_name(page_url, node.get('page_type'))
+        
+        self._page_name_to_url[friendly_name] = page_url
+        self._url_to_page_name[page_url] = friendly_name
+        
+    def _parse_element_node(self, node: dict) -> None:
+        """Parse an Element node.
+        
+        Example node:
+        {
+            "node_type": "Element",
+            "element_type": "button",
+            "text": "Log out",
+            "locator_type": "css",
+            "locator_value": "button",
+            "button_type": "submit",
+            "id": "elem_button_1"
+        }
+        
+        Args:
+            node: Element node dictionary from graph
+        """
+        elem_id = node['id']
+        self._elements[elem_id] = node
+        
+    def _parse_on_page_edge(self, edge: dict) -> None:
+        """Parse an ON_PAGE edge (element is on page).
+        
+        Example edge:
+        {
+            "edge_type": "ON_PAGE",
+            "source": "elem_button_1",
+            "target": "http://127.0.0.1:3000/#!/overview"
+        }
+        
+        Args:
+            edge: Edge dictionary from graph
+        """
+        elem_id = edge['source']
+        page_url = edge['target']
+        
+        if page_url not in self._elements_by_page:
+            _LOGGER.warning("Page not found for ON_PAGE edge: %s", page_url)
+            return
+            
+        if elem_id not in self._elements:
+            _LOGGER.warning("Element not found for ON_PAGE edge: %s", elem_id)
+            return
+            
+        elem_info = self._elements[elem_id]
+        
+        # Generate friendly name for element
+        elem_name = self._generate_element_name(elem_info)
+        
+        # Add to page's element collection
+        self._elements_by_page[page_url][elem_name] = {
+            'id': elem_id,
+            'name': elem_name,
+            'info': elem_info
+        }
+        
+    def _parse_maps_to_edge(self, edge: dict) -> None:
+        """Parse a MAPS_TO edge (navigation transition).
+        
+        Example edge:
+        {
+            "edge_type": "MAPS_TO",
+            "via_element": "elem_link_3",
+            "action": "click",
+            "source": "http://127.0.0.1:3000/#!/overview",
+            "target": "http://127.0.0.1:3000/#!/devices"
+        }
+        
+        Args:
+            edge: Edge dictionary from graph
+        """
+        source_url = edge['source']
+        target_url = edge['target']
+        via_element = edge['via_element']
+        
+        # Store transition: (page, element) → target_page
+        transition_key = (source_url, via_element)
+        self._transitions[transition_key] = target_url
+        
+    def _url_to_friendly_page_name(self, url: str, page_type: str | None = None) -> str:
+        """Convert URL to friendly page name.
+        
+        Examples:
+            http://127.0.0.1:3000/#!/login → "login_page"
+            http://127.0.0.1:3000/#!/overview → "home_page" (if page_type="home")
+            http://127.0.0.1:3000/#!/devices → "device_list_page" (if page_type="device_list")
+            http://127.0.0.1:3000/#!/devices/ABC123 → "device_details_page"
+            
+        Args:
+            url: Full URL
+            page_type: Optional page type from discovery
+            
+        Returns:
+            Friendly page name suitable for state tracking
+        """
+        # Extract hash fragment
+        if "#!/" in url:
+            fragment = url.split("#!/")[1].split("?")[0]
+        else:
+            fragment = "unknown"
+            
+        # Special cases based on page_type from discovery
+        if page_type == "home":
+            return "home_page"
+        elif page_type == "login":
+            return "login_page"
+        elif page_type == "device_list":
+            return "device_list_page"
+        elif page_type == "device_details":
+            return "device_details_page"
+        elif page_type == "faults":
+            return "faults_page"
+        elif page_type == "admin":
+            return "admin_page"
+            
+        # Check for device details pattern
+        if fragment.startswith("devices/") and "/" in fragment:
+            return "device_details_page"
+            
+        # Default: convert fragment to friendly name
+        # "admin/presets" → "admin_presets_page"
+        friendly = fragment.replace("/", "_").replace("-", "_")
+        return f"{friendly}_page"
+        
+    def _generate_element_name(self, elem_info: dict) -> str:
+        """Generate friendly name for element.
+        
+        Strategy:
+        1. Use text if available (e.g., "Log out" → "log_out")
+        2. Use title if available (e.g., "Reboot device" → "reboot_device")
+        3. Use placeholder if available (e.g., "Search" → "search")
+        4. Use type + id as fallback
+        
+        Examples:
+            {"element_type": "button", "text": "Log out"} → "log_out_button"
+            {"element_type": "input", "placeholder": "Search"} → "search_input"
+            {"element_type": "link", "text": "Devices"} → "devices_link"
+            
+        Args:
+            elem_info: Element metadata dictionary
+            
+        Returns:
+            Friendly element name
+        """
+        elem_type = elem_info.get('element_type', 'element')
+        
+        # Try to find a descriptive name (handle None values)
+        text = (elem_info.get('text') or '').strip()
+        title = (elem_info.get('title') or '').strip()
+        placeholder = (elem_info.get('placeholder') or '').strip()
+        aria_label = (elem_info.get('aria_label') or '').strip()
+        name = (elem_info.get('name') or '').strip()
+        
+        # Priority order for naming
+        name_source = text or title or placeholder or aria_label or name
+        
+        if name_source:
+            # Clean up name: "Log out" → "log_out"
+            clean_name = name_source.lower()
+            clean_name = clean_name.replace(' ', '_')
+            clean_name = clean_name.replace('-', '_')
+            # Remove special characters
+            clean_name = ''.join(c for c in clean_name if c.isalnum() or c == '_')
+            return f"{clean_name}_{elem_type}"
+        else:
+            # Fallback: use element type + id
+            elem_id = elem_info.get('id', 'unknown')
+            return f"{elem_type}_{elem_id}"
+            
+    # ================================================================
+    # STATE TRACKING
+    # ================================================================
+    
+    def set_state(self, state: str, via_action: str | None = None) -> None:
+        """Set current state (page) deterministically.
+        
+        Args:
+            state: Page name (e.g., 'home_page', 'device_list_page')
+            via_action: Optional description of how we got here
+        """
+        old_state = self._current_state
+        self._current_state = state
+        
+        # Update current URL
+        if state in self._page_name_to_url:
+            self._current_url = self._page_name_to_url[state]
+        
+        # Record in history
+        self._state_history.append({
+            'from': old_state,
+            'to': state,
+            'via': via_action,
+            'timestamp': time.time()
+        })
+        
+        _LOGGER.debug("State: %s → %s (via: %s)", old_state, state, via_action)
+        
+    def get_state(self) -> str | None:
+        """Get current state (page name).
+        
+        Returns:
+            Current page name or None if not set
+        """
+        return self._current_state
+        
+    def get_state_history(self) -> list[dict]:
+        """Get complete navigation history.
+        
+        Returns:
+            List of state transition dictionaries
+        """
+        return self._state_history.copy()
+        
+    # ================================================================
+    # ELEMENT FINDING (replaces selectors.yaml)
+    # ================================================================
+    
+    def find_element(
+        self,
+        page_state: str,
+        element_name: str,
+        timeout: int | None = None
+    ) -> WebElement:
+        """Find element using ui_map.json data.
+        
+        This replaces the old selector_path approach from selectors.yaml.
+        
+        Args:
+            page_state: Page name (e.g., 'home_page')
+            element_name: Element name (e.g., 'log_out_button')
+            timeout: Optional custom timeout
+            
+        Returns:
+            WebElement
+            
+        Raises:
+            KeyError: If page or element not found in graph
+            TimeoutException: If element not found within timeout
             
         Example:
-            >>> locator = self._get_locator("home_page.main_menu.devices_link")
-            >>> # Returns: (By.ID, "devices-menu-item")
+            >>> logout_btn = component.find_element('home_page', 'log_out_button')
         """
-        # Split the path and traverse the selectors dictionary
-        path_parts = selector_path.split(".")
-        current = self.selectors
-        
-        for part in path_parts:
-            if not isinstance(current, dict):
-                raise ValueError(
-                    f"Invalid selector path '{selector_path}': "
-                    f"'{part}' is not a valid key"
-                )
-            if part not in current:
-                raise KeyError(
-                    f"Selector path '{selector_path}' not found: "
-                    f"missing key '{part}'"
-                )
-            current = current[part]
-        
-        # Validate the final selector structure
-        if not isinstance(current, dict):
-            raise ValueError(
-                f"Invalid selector at '{selector_path}': expected dict, got {type(current)}"
+        # Get page URL from state name
+        if page_state not in self._page_name_to_url:
+            available = list(self._page_name_to_url.keys())
+            raise KeyError(
+                f"Page '{page_state}' not found in UI graph. "
+                f"Available: {available}"
             )
-        
-        if "by" not in current or "selector" not in current:
-            raise ValueError(
-                f"Invalid selector at '{selector_path}': "
-                f"must contain 'by' and 'selector' keys"
-            )
-        
-        by_type = current["by"]
-        selector = current["selector"]
-        
-        # Validate the 'by' type
-        if by_type not in self.BY_MAPPING:
-            raise ValueError(
-                f"Invalid 'by' type '{by_type}' in selector '{selector_path}'. "
-                f"Valid types: {list(self.BY_MAPPING.keys())}"
-            )
-        
-        # Apply template variables if provided
-        if kwargs:
-            selector = selector.format(**kwargs)
-        
-        return self.BY_MAPPING[by_type], selector
-
-    def _find_element(
-        self,
-        selector_path: str,
-        timeout: int | None = None,
-        **kwargs,
-    ) -> WebElement:
-        """Find a single element using the selector path.
-        
-        Args:
-            selector_path: Dot-notated path to selector
-            timeout: Optional custom timeout (uses default if None)
-            **kwargs: Optional template variables for dynamic selectors
             
-        Returns:
-            WebElement instance
+        page_url = self._page_name_to_url[page_state]
+        
+        # Get element info from graph
+        page_elements = self._elements_by_page.get(page_url, {})
+        
+        if element_name not in page_elements:
+            available = list(page_elements.keys())
+            raise KeyError(
+                f"Element '{element_name}' not found on page '{page_state}'. "
+                f"Available: {available}"
+            )
             
-        Raises:
-            TimeoutException: If element is not found within timeout
-            KeyError: If selector path is not found
-        """
-        by_type, selector = self._get_locator(selector_path, **kwargs)
+        elem_data = page_elements[element_name]
+        elem_info = elem_data['info']
+        
+        # Build Selenium locator
+        locator_type = elem_info.get('locator_type', 'css')
+        locator_value = elem_info.get('locator_value')
+        
+        if not locator_value:
+            raise ValueError(
+                f"Element '{element_name}' has no locator_value"
+            )
+            
+        by_type = self.BY_MAPPING.get(locator_type, By.CSS_SELECTOR)
+        
+        # Find element with timeout
         wait = WebDriverWait(self.driver, timeout) if timeout else self.wait
         
         try:
             element = wait.until(
-                EC.presence_of_element_located((by_type, selector))
+                EC.presence_of_element_located((by_type, locator_value))
             )
-            _LOGGER.debug("Found element: %s (%s: %s)", selector_path, by_type, selector)
+            _LOGGER.debug(
+                "Found element: %s.%s (%s: %s)",
+                page_state, element_name, locator_type, locator_value
+            )
             return element
+            
         except TimeoutException:
             _LOGGER.error(
-                "Element not found: %s (%s: %s) within %s seconds",
-                selector_path,
-                by_type,
-                selector,
-                timeout or self.wait._timeout,
+                "Element not found: %s.%s (%s: %s) within %s seconds",
+                page_state, element_name, locator_type, locator_value,
+                timeout or self._default_timeout
             )
             raise
-
-    def navigate_path(self, path_name: str, **kwargs) -> None:
-        """Execute a uniquely named navigation path from the navigation artifact.
+            
+    def list_page_elements(self, page_state: str) -> list[str]:
+        """List all available elements on a page.
         
-        This is the core method that executes a sequence of UI actions defined
-        in the navigation.yaml file. The path_name acts as a stable contract
-        between the test intent and the volatile UI implementation.
+        Useful for debugging and exploration.
         
         Args:
-            path_name: Unique name of the navigation path (e.g., 
-                      "Path_Home_to_DeviceDetails_via_Search")
-            **kwargs: Template variables for dynamic values in the path
-                     (e.g., cpe_id="12345")
+            page_state: Page name
+            
+        Returns:
+            List of element names available on this page
+        """
+        if page_state not in self._page_name_to_url:
+            return []
+            
+        page_url = self._page_name_to_url[page_state]
+        return list(self._elements_by_page.get(page_url, {}).keys())
         
-        Raises:
-            ValueError: If path_name is not found in navigation.yaml
-            KeyError: If a selector referenced in the path is not found
+    # ================================================================
+    # NAVIGATION (will be implemented in Phase 3)
+    # ================================================================
+    
+    def verify_page(
+        self,
+        expected_page: str,
+        timeout: int = 5,
+        update_state: bool = True
+    ) -> bool:
+        """Verify we're on the expected page by finding an element on it.
+        
+        This validates that the current page matches expectations by attempting
+        to find an element that should exist on that page. Useful for:
+        - Validating navigation succeeded
+        - Verifying state before performing actions
+        - Confirming login/logout status
+        - Asserting preconditions in tests
+        
+        Args:
+            expected_page: Page name to verify (e.g., 'login_page', 'home_page')
+            timeout: How long to wait for element (seconds)
+            update_state: If True, update tracked state on successful verification
+            
+        Returns:
+            True if page verified (expected element found)
+            False if page not verified (element not found or page unknown)
             
         Example:
-            >>> gui.navigate_path(
-            ...     "Path_Home_to_DeviceDetails_via_Search",
-            ...     cpe_id="ABC123"
-            ... )
+            # Verify we're on the login page
+            if component.verify_page('login_page'):
+                # Proceed with login
+                pass
+                
+            # Verify and update state
+            component.verify_page('home_page', update_state=True)
         """
-        # Get the navigation path definition
-        navigation_paths = self.navigation.get("navigation_paths", {})
-        path_steps = navigation_paths.get(path_name)
-        
-        if not path_steps:
-            available_paths = list(navigation_paths.keys())
-            raise ValueError(
-                f"Path '{path_name}' not found in navigation.yaml. "
-                f"Available paths: {available_paths}"
-            )
-        
-        _LOGGER.info("Executing navigation path: %s", path_name)
-        
-        # Execute each step in the path
-        for step_idx, step in enumerate(path_steps, 1):
-            self._execute_step(step, step_idx, path_name, **kwargs)
-        
-        _LOGGER.info("Completed navigation path: %s", path_name)
-
-    def _execute_step(
-        self,
-        step: dict[str, Any],
-        step_idx: int,
-        path_name: str,
-        **kwargs,
-    ) -> None:
-        """Execute a single navigation step.
-        
-        Args:
-            step: Step definition from navigation.yaml
-            step_idx: Step index (for logging)
-            path_name: Name of the navigation path (for logging)
-            **kwargs: Template variables for dynamic values
-            
-        Raises:
-            ValueError: If action type is unknown or step is malformed
-        """
-        action = step.get("action")
-        target = step.get("target")
-        
-        if not action:
-            raise ValueError(
-                f"Step {step_idx} in path '{path_name}' missing 'action' key"
-            )
-        
-        if not target:
-            raise ValueError(
-                f"Step {step_idx} in path '{path_name}' missing 'target' key"
-            )
-        
-        _LOGGER.debug(
-            "Step %d/%s: %s on %s",
-            step_idx,
-            path_name,
-            action,
-            target,
-        )
-        
-        # Execute the action
-        if action == "click":
-            element = self._find_element(target, **kwargs)
-            element.click()
-            
-        elif action == "type":
-            value = step.get("value")
-            if value is None:
-                raise ValueError(
-                    f"Step {step_idx} in path '{path_name}': "
-                    f"'type' action requires 'value' key"
+        try:
+            # Check if page exists in graph
+            if expected_page not in self._page_name_to_url:
+                _LOGGER.warning(
+                    "Cannot verify page '%s' - not found in graph. Available: %s",
+                    expected_page,
+                    list(self._page_name_to_url.keys())
                 )
-            # Apply template variables to the value
-            if kwargs:
-                value = value.format(**kwargs)
+                return False
             
-            element = self._find_element(target, **kwargs)
-            element.clear()
-            element.send_keys(value)
+            # Get elements on this page
+            page_url = self._page_name_to_url[expected_page]
+            page_elements = self._elements_by_page.get(page_url, {})
             
-        elif action == "wait":
-            # Wait for element to be present
-            self._find_element(target, **kwargs)
+            if not page_elements:
+                _LOGGER.warning(
+                    "Cannot verify page '%s' - no elements in graph",
+                    expected_page
+                )
+                return False
             
-        else:
-            raise ValueError(
-                f"Unknown action '{action}' in step {step_idx} of path '{path_name}'. "
-                f"Supported actions: click, type, wait"
-            )
+            # Try to find the first element on the page to verify we're there
+            # Use a representative element (prefer buttons/inputs over generic elements)
+            test_element = None
+            for elem_name in page_elements.keys():
+                # Prefer buttons and inputs as they're more stable indicators
+                elem_data = page_elements[elem_name]
+                elem_type = elem_data['info'].get('element_type', '')
+                if elem_type in ['button', 'input']:
+                    test_element = elem_name
+                    break
+            
+            # If no button/input, use first available element
+            if not test_element and page_elements:
+                test_element = list(page_elements.keys())[0]
+            
+            # Try to find the element
+            self.find_element(expected_page, test_element, timeout=timeout)
+            
+            # Success! Update state if requested
+            if update_state:
+                self.set_state(expected_page, via_action='verified')
+            
+            _LOGGER.debug("Verified page '%s' (found element '%s')", expected_page, test_element)
+            return True
+            
+        except Exception as e:
+            _LOGGER.debug("Page verification failed for '%s': %s", expected_page, e)
+            return False
     
-    def find_element_by_function(
+    def navigate_to_state(
         self,
-        element_type: str,
-        function_keywords: list[str],
-        page: str | None = None,
-        fallback_name: str | None = None,
-        timeout: int | None = None,
-    ) -> WebElement:
-        """Find element by functional keywords with fallback to explicit name.
+        target_state: str,
+        max_steps: int = 10
+    ) -> bool:
+        """Navigate from current state to target using shortest path.
         
-        This method enables self-healing tests by searching element metadata
-        for functional matches using scoring. Even when element IDs/names change,
-        tests can find elements by their purpose.
-        
-        Phase 5.2: Semantic element search with scoring algorithm.
+        This will be implemented in Phase 3.
+        Uses BFS to find shortest path in the graph.
         
         Args:
-            element_type: Element type ("button", "input", "link", "select")
-            function_keywords: Keywords indicating function (e.g., ["reboot", "restart"])
-            page: Page to search (uses current page if None)
-            fallback_name: Explicit element name to use if semantic search fails
-            timeout: Optional custom timeout for element location
+            target_state: Target page name (e.g., 'device_list_page')
+            max_steps: Maximum navigation steps allowed
             
         Returns:
-            WebElement matching the function
+            True if navigation successful
             
         Raises:
-            ValueError: If page not found in selectors
-            KeyError: If no element matches function and no fallback provided
-            
-        Example:
-            >>> # Search for reboot button by function
-            >>> btn = gui.find_element_by_function(
-            ...     element_type="button",
-            ...     function_keywords=["reboot", "restart", "reset"],
-            ...     page="device_details_page",
-            ...     fallback_name="reboot"
-            ... )
+            NotImplementedError: Phase 3 not yet implemented
         """
-        page = page or self._get_current_page()
+        raise NotImplementedError("Navigation will be implemented in Phase 3")
         
-        # Validate page exists
-        if page not in self.selectors:
-            available_pages = list(self.selectors.keys())
-            raise ValueError(
-                f"Page '{page}' not found in selectors. "
-                f"Available pages: {available_pages}"
-            )
+    def _find_shortest_path(
+        self,
+        source_url: str,
+        target_url: str,
+        max_steps: int
+    ) -> list[dict] | None:
+        """Find shortest path between pages using BFS.
         
-        # Get all elements of this type on the page
-        element_group = f"{element_type}s"  # buttons, inputs, links, selects
-        elements = self.selectors[page].get(element_group, {})
-        
-        if not elements:
-            _LOGGER.warning("No %s found on page '%s'", element_group, page)
-        
-        # Search for functional matches
-        candidates = []
-        for elem_name, elem_data in elements.items():
-            score = self._calculate_functional_match_score(
-                elem_data, function_keywords, element_type
-            )
-            if score > 0:
-                candidates.append((elem_name, score, elem_data))
-        
-        if candidates:
-            # Sort by score (highest first)
-            candidates.sort(key=lambda x: x[1], reverse=True)
-            best_match = candidates[0]
-            _LOGGER.info(
-                "Semantic search found '%s' for keywords %s (score: %d)",
-                best_match[0], function_keywords, best_match[1]
-            )
-            
-            # Build selector path and find element
-            selector_path = f"{page}.{element_group}.{best_match[0]}"
-            return self._find_element(selector_path, timeout=timeout)
-        
-        # Fallback to explicit name if semantic search fails
-        if fallback_name and fallback_name in elements:
-            _LOGGER.info(
-                "Semantic search failed, using fallback name '%s'", 
-                fallback_name
-            )
-            selector_path = f"{page}.{element_group}.{fallback_name}"
-            return self._find_element(selector_path, timeout=timeout)
-        
-        # No match found
-        raise KeyError(
-            f"No {element_type} found matching {function_keywords} on page '{page}' "
-            f"(searched {len(elements)} elements). "
-            f"Fallback name '{fallback_name}' also not found." if fallback_name 
-            else f"No {element_type} found matching {function_keywords} on page '{page}' "
-                 f"(searched {len(elements)} elements, no fallback provided)."
-        )
-    
-    def _calculate_functional_match_score(
-        self, 
-        elem_data: dict, 
-        keywords: list[str],
-        element_type: str
-    ) -> int:
-        """Calculate how well element matches functional keywords.
-        
-        Scoring algorithm (Phase 5.2):
-        - data-action (exact): 100 points
-        - text (exact): 50 points
-        - text (partial): 25 points
-        - id (contains): 30 points
-        - title/aria-label (contains): 20 points
-        - class (contains): 10 points
+        This will be implemented in Phase 3.
         
         Args:
-            elem_data: Element data from selectors.yaml
-            keywords: List of functional keywords
-            element_type: Type of element (for context)
+            source_url: Source page URL
+            target_url: Target page URL
+            max_steps: Maximum path length
             
         Returns:
-            Score (higher = better match, 0 = no match)
+            List of edges representing the path, or None if no path
+            
+        Raises:
+            NotImplementedError: Phase 3 not yet implemented
         """
-        score = 0
-        
-        # Normalize keywords for case-insensitive matching
-        keywords_lower = [kw.lower() for kw in keywords]
-        
-        # Extract metadata attributes (Phase 5.1 captured these)
-        text = (elem_data.get("text") or "").lower()
-        title = (elem_data.get("title") or "").lower()
-        aria_label = (elem_data.get("aria_label") or "").lower()
-        data_action = (elem_data.get("data_action") or "").lower()
-        
-        # Element-specific IDs
-        elem_id = (
-            elem_data.get("button_id") or 
-            elem_data.get("input_id") or 
-            elem_data.get("select_id") or 
-            elem_data.get("link_id") or 
-            ""
-        ).lower()
-        
-        # Element-specific classes
-        elem_class = (
-            elem_data.get("button_class") or 
-            elem_data.get("link_class") or 
-            elem_data.get("class") or 
-            ""
-        ).lower()
-        
-        # Additional attributes
-        placeholder = (elem_data.get("placeholder") or "").lower()
-        name = (elem_data.get("name") or "").lower()
-        href = (elem_data.get("href") or "").lower()
-        onclick_hint = (elem_data.get("onclick_hint") or "").lower()
-        
-        # Score each keyword
-        for kw in keywords_lower:
-            # Highest priority: data-action (explicit functional attribute)
-            if data_action and kw in data_action:
-                score += 100
-            
-            # High priority: exact match in text
-            if text:
-                if kw == text:
-                    score += 50
-                elif kw in text:
-                    score += 25
-            
-            # Medium-high priority: ID contains keyword
-            if elem_id and kw in elem_id:
-                score += 30
-            
-            # Medium priority: title/aria-label (descriptive)
-            if title and kw in title:
-                score += 20
-            if aria_label and kw in aria_label:
-                score += 20
-            
-            # Medium-low priority: placeholder (for inputs)
-            if placeholder and kw in placeholder:
-                score += 15
-            
-            # Lower priority: class name hints
-            if elem_class and kw in elem_class:
-                score += 10
-            
-            # Additional signals
-            if name and kw in name:
-                score += 10
-            if href and kw in href:
-                score += 10
-            if onclick_hint and kw in onclick_hint:
-                score += 5
-        
-        return score
-    
-    def _get_current_page(self) -> str:
-        """Determine current page from URL or page state.
-        
-        This is a simple implementation that can be overridden by
-        device-specific components for more sophisticated page detection.
-        
-        Returns:
-            Page name (defaults to first page in selectors)
-        """
-        # Simple implementation: return first page
-        # Device-specific components should override this for better page detection
-        if not self.selectors:
-            raise ValueError("No selectors loaded")
-        
-        pages = list(self.selectors.keys())
-        if not pages:
-            raise ValueError("No pages found in selectors")
-        
-        # Return first page as default
-        # TODO: Enhance with URL-based page detection in device-specific components
-        return pages[0]
+        raise NotImplementedError("Pathfinding will be implemented in Phase 3")
+
