@@ -641,7 +641,7 @@ class GenieAcsGUI(ACSGUI):
     # ========================================================================
     
     def login(self, username: str | None = None, password: str | None = None) -> bool:
-        """Login to GenieACS GUI.
+        """Login to GenieACS GUI using form-based authentication.
         
         :param username: Username (uses config if None)
         :param password: Password (uses config if None)
@@ -652,65 +652,71 @@ class GenieAcsGUI(ACSGUI):
         username = username or self.config.get("http_username", "admin")
         password = password or self.config.get("http_password", "admin")
         
-        # Navigate to login page if not already there
-        base_url = f"http://{self.config['ipaddr']}:{self.config['http_port']}"
-        self._driver.get(base_url)
+        # Navigate to login page
+        ip = self.config['ipaddr']
+        port = self.config['http_port']
+        login_url = f"http://{ip}:{port}/#!/login"
         
-        # Find username input using semantic search
-        username_input = self._base_component.find_element_by_function(
-            element_type="input",
-            function_keywords=["username", "user", "login"],
-            page="login_page",
-            fallback_name="username"
-        )
-        username_input.clear()
-        username_input.send_keys(username)
-        
-        # Find password input
-        password_input = self._base_component.find_element_by_function(
-            element_type="input",
-            function_keywords=["password", "pass"],
-            page="login_page",
-            fallback_name="password"
-        )
-        password_input.clear()
-        password_input.send_keys(password)
-        
-        # Find and click login button
-        login_btn = self._base_component.find_element_by_function(
-            element_type="button",
-            function_keywords=["login", "sign in", "submit"],
-            page="login_page",
-            fallback_name="login"
-        )
-        login_btn.click()
-        
-        # Verify login successful (check for logout button or home page element)
         try:
-            self._base_component.find_element_by_function(
-                element_type="link",
-                function_keywords=["logout", "sign out"],
+            self._driver.get(login_url)
+            
+            # Find and fill username input (with explicit timeout)
+            username_input = self._base_component._find_element(
+                "login_page.inputs.username",
+                timeout=self.gui_default_timeout
+            )
+            username_input.clear()
+            username_input.send_keys(username)
+            
+            # Find and fill password input
+            password_input = self._base_component._find_element(
+                "login_page.inputs.password",
+                timeout=self.gui_default_timeout
+            )
+            password_input.clear()
+            password_input.send_keys(password)
+            
+            # Find and click login button
+            login_btn = self._base_component._find_element(
+                "login_page.buttons.login",
+                timeout=self.gui_default_timeout
+            )
+            login_btn.click()
+            
+            # Wait for redirect and verify login by checking for logout button
+            logout_btn = self._base_component.find_element_by_function(
+                element_type="button",
+                function_keywords=["logout", "log out", "sign out"],
+                page="home_page",
+                fallback_name="log_out",
                 timeout=10
             )
-            return True
+            if logout_btn:
+                _LOGGER.info("Successfully logged into GenieACS GUI")
+                return True
+            return False
         except Exception as e:
-            _LOGGER.error("Login verification failed: %s", e)
+            _LOGGER.error("Login failed: %s", e)
             return False
     
     def logout(self) -> bool:
         """Logout from GenieACS GUI.
+        
+        Clicks the logout button on the home page.
         
         :return: True if logout successful
         """
         self._ensure_initialized()
         
         try:
-            logout_link = self._base_component.find_element_by_function(
-                element_type="link",
-                function_keywords=["logout", "sign out", "exit"],
-                fallback_name="logout"
+            logout_btn = self._base_component.find_element_by_function(
+                element_type="button",
+                function_keywords=["logout", "log out", "sign out"],
+                page="home_page",
+                fallback_name="log_out"
             )
-            logout_link.click()
+            logout_btn.click()
+            _LOGGER.info("Successfully logged out from GenieACS GUI")
             return True
         except Exception as e:
             _LOGGER.error("Logout failed: %s", e)
@@ -719,15 +725,19 @@ class GenieAcsGUI(ACSGUI):
     def is_logged_in(self) -> bool:
         """Check if currently logged into GenieACS GUI.
         
+        Checks for presence of logout button on home page.
+        
         :return: True if logged in
         """
         self._ensure_initialized()
         
         try:
-            # Check for presence of logout link/button
+            # Check for presence of logout button on home page
             self._base_component.find_element_by_function(
-                element_type="link",
-                function_keywords=["logout", "sign out"],
+                element_type="button",
+                function_keywords=["logout", "log out", "sign out"],
+                page="home_page",
+                fallback_name="log_out",
                 timeout=5
             )
             return True
@@ -776,7 +786,7 @@ class GenieAcsGUI(ACSGUI):
             # Look for device link/row containing the CPE ID
             device_link = self._base_component._find_element(
                 f"devices_page.links.device_{cpe_id}",
-                timeout=5
+                timeout=self.gui_default_timeout
             )
             return device_link is not None
         except Exception as e:
@@ -1085,7 +1095,7 @@ class GenieAcsGUI(ACSGUI):
             # This is a simplified version
             value_element = self._base_component._find_element(
                 f"parameters_page.values.{parameter}",
-                timeout=5
+                timeout=self.gui_default_timeout
             )
             return value_element.text
         except Exception as e:
