@@ -30,9 +30,11 @@ The UI discovery tools **automatically generate the mapping** between your stabl
 
 The framework uses NetworkX graph algorithms to:
 
-1. **Discover** your application's UI structure
-2. **Generate** mapping artifacts (selectors.yaml, navigation.yaml)
+1. **Discover** your application's UI structure (pages, elements, navigation paths)
+2. **Generate** a single graph artifact (`ui_map.json`) with everything including friendly names
 3. **Enable** device-specific implementations to fulfill the standard interface
+
+**Key Innovation**: Friendly names (like `"login_page"`, `"username_input"`) are generated automatically during discovery and stored in the graph - no manual maintenance needed!
 
 ## Boardfarm Standardization Pattern
 
@@ -44,11 +46,11 @@ Boardfarm uses the **same architectural pattern** for both M2M and GUI interface
 | ------------------- | ---------------------------------- | ------------------------------------- |
 | **Template**        | `CpeTemplate` defines standard API | `AcsGuiTemplate` defines standard API |
 | **Implementations** | `PrplOsCpe`, `OpenWrtCpe`          | `GenieAcsGui`, `AxirosAcsGui`         |
-| **Mapping**         | Protocol adapters (TR-069, SSH)    | selectors.yaml + navigation.yaml      |
+| **Mapping**         | Protocol adapters (TR-069, SSH)    | ui_map.json (graph with friendly names) |
 | **Test Interface**  | `cpe.reboot()`                     | `acs.gui.reboot_device()`             |
 | **Discovery Tools** | Manual implementation              | **Automated** (ui_discovery.py)       |
 
-**Key Insight:** The UI discovery tools **automatically generate the mapping artifacts** (selectors.yaml, navigation.yaml) that connect your stable test interface to the actual UI implementation.
+**Key Insight:** The UI discovery tools **automatically generate a graph artifact** (`ui_map.json`) with friendly names that connect your stable test interface to the actual UI implementation. Everything is generated once during discovery - no manual maintenance needed!
 
 ### Component Structure (Template Pattern)
 
@@ -67,15 +69,13 @@ devices/
 │   ├── genieacs_gui.py             # Implements gui_component
 │   ├── genieacs_nbi.py             # Implements nbi_component
 │   ├── genieacs_device.py          # Uses template pattern
-│   ├── selectors.yaml              # UI element mapping (generated)
-│   └── navigation.yaml             # Navigation paths (generated)
+│   └── ui_map.json                 # UI graph with friendly names (generated)
 │
 └── axirosacs/                        # Another implementation
     ├── axirosacs_gui.py
     ├── axirosacs_nbi.py
     ├── axirosacs_device.py
-    ├── selectors.yaml              # Different UI, same interface
-    └── navigation.yaml
+    └── ui_map.json                 # Different UI, same interface (generated)
 ```
 
 **Pattern:**
@@ -233,37 +233,41 @@ See `boardfarm3/templates/acs/acs_gui.py` for the complete ACSGUI template with 
 
 ## Architecture
 
-### Phase 2: Graph-Based Single Source of Truth (Current) ✅
+### Current Architecture: Graph-Based with Friendly Names ✅
 
-**Status**: Production-ready as of December 8, 2024
+**Status**: Production-ready as of December 9, 2025 (Phases 0-5 complete)
 
-The framework now uses `ui_map.json` as the **single source of truth**:
+The framework now uses `ui_map.json` as the **single source of truth** with embedded friendly names:
 
 ```
 Web Application
       ↓ (Selenium crawl + BFS)
   ui_discovery.py
-      ↓
+      ↓ (Generate friendly names!)
    UIGraph (NetworkX)
-      ↓ (Export)
+      ↓ (Export with friendly_name attributes)
   ui_map.json ← SINGLE SOURCE OF TRUTH
       ↓ (Parse once at init)
-  BaseGuiComponent
+  BaseGuiComponent (100% generic)
       ↓ (In-memory structures: O(1) lookups)
+      ↓ (Read friendly names from graph)
   Device.gui (GenieAcsGUI, etc.)
-      ↓ (State tracking + validation)
+      ↓ (State tracking + validation + BFS navigation)
   BDD Step Definitions
       ↓
   Test Execution
 ```
 
 **Benefits**:
-- ✅ 67% fewer files (1 vs 3)
-- ✅ 5x faster initialization
-- ✅ 10-100x faster element lookups
-- ✅ No sync issues
-- ✅ State tracking with validation
-- ✅ Simpler configuration
+- ✅ **67% fewer files** (1 vs 3 - no more YAML files!)
+- ✅ **5x faster initialization** (single graph load)
+- ✅ **10-100x faster element lookups** (dict lookup, not YAML parsing)
+- ✅ **No sync issues** (single source of truth)
+- ✅ **State tracking** with validation
+- ✅ **Automatic navigation** with BFS pathfinding
+- ✅ **Friendly names** generated once, stored in graph
+- ✅ **Clean separation** - UI-specific logic in discovery, not framework
+- ✅ **100% generic framework** - no application-specific code
 
 **Configuration**:
 ```json
@@ -295,37 +299,42 @@ selectors.yaml              navigation.yaml
 
 ### Key Components
 
-1. **`ui_graph.py`** - NetworkX wrapper for graph representation
+1. **`ui_discovery.py`** - Automated UI crawler with friendly name generation
    
-   - Nodes: Pages, Modals, Forms, Elements
+   - BFS (breadth-first search) traversal
+   - **Generates friendly names** for pages and elements
+   - Pattern-based duplicate detection
+   - Interaction discovery (buttons, modals)
+   - Exports to graph format with `friendly_name` attributes
+
+2. **`ui_graph.py`** - NetworkX wrapper for graph representation
+   
+   - Nodes: Pages, Modals, Forms, Elements (all with `friendly_name`)
    - Edges: Containment, Navigation (with query params), Dependencies
    - Algorithms: Shortest path, All paths, Connectivity checks
 
-2. **`ui_discovery.py`** - Automated UI crawler
+3. **`base_gui_component.py`** - Generic graph-based GUI component (100% reusable)
    
-   - BFS (breadth-first search) traversal
-   - Pattern-based duplicate detection
-   - Interaction discovery (buttons, modals)
-   - Exports to graph format
+   - Reads friendly names from graph (zero overhead)
+   - State machine with deterministic tracking
+   - **BFS automatic navigation** between any two pages
+   - Element finding by friendly name
+   - Page verification and detection
+   - **Robust interaction methods** (clicking, typing with fallbacks)
 
-3. **`selector_generator.py`** - Selector YAML generator
+4. **`selector_generator.py`** - Selector YAML generator (legacy/optional)
    
    - Reads graph format
    - Groups elements by page/modal/form
    - Generates clean, maintainable selectors
+   - **Note**: Optional - `BaseGuiComponent` can use graph directly
 
-4. **`navigation_generator.py`** - Navigation path generator
+5. **`navigation_generator.py`** - Navigation path generator (legacy/optional)
    
    - Uses graph algorithms
    - Finds optimal paths between pages
    - Generates multi-step navigation instructions
-
-5. **`base_gui_component.py`** - Base class for GUI components
-   
-   - Selenium wrapper
-   - Element finding and interaction
-   - Navigation path execution
-   - **Robust interaction methods** (clicking, typing with fallbacks)
+   - **Note**: Optional - `BaseGuiComponent` has built-in BFS navigation
 
 ### Robust Interaction Methods
 
@@ -1238,11 +1247,14 @@ dependencies = [
 
 ## Contributing
 
-To add new features:
+To add new features or customize for different UIs:
 
 1. **For discovery**: Extend `UIDiscoveryTool` class
-2. **For selectors**: Extend `SelectorGenerator` class
-3. **For navigation**: Extend `NavigationGenerator` class
+   - Override `_classify_page()` for custom page types
+   - Override `_generate_friendly_page_name()` for custom page names
+   - Override `_generate_friendly_element_name()` for custom element names
+2. **For selectors** (optional): Extend `SelectorGenerator` class
+3. **For navigation** (optional): Extend `NavigationGenerator` class
 4. **Add tests**: Unit tests required for all new features
 5. **Update docs**: Keep this README and tool-specific docs in sync
 

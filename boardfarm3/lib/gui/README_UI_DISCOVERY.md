@@ -333,17 +333,67 @@ python boardfarm/boardfarm3/lib/gui/ui_discovery.py \
   --output ui_map.json
 ```
 
+## Friendly Name Generation
+
+**NEW in Phase 2**: The discovery tool now generates human-readable "friendly names" for all pages and elements during crawling. These names are stored directly in the graph and provide stable, semantic identifiers for test automation.
+
+### How It Works
+
+The tool automatically generates friendly names using application-specific logic:
+
+**For Pages:**
+- Method: `_generate_friendly_page_name(url, page_type)`
+- Strategy: Append `"_page"` to the classified page type
+- Examples:
+  - `page_type="login"` → `"login_page"`
+  - `page_type="home"` → `"home_page"`
+  - `page_type="device_list"` → `"device_list_page"`
+
+**For Elements:**
+- Method: `_generate_friendly_element_name(elem_info, element_type)`
+- Strategy (priority order):
+  1. Use `text` if available: `"Log out"` → `"log_out_button"`
+  2. Use `title` if available
+  3. Use `placeholder` for inputs
+  4. Use `aria-label` if available
+  5. Use `name` attribute if available
+  6. Fallback: `"{element_type}_{counter}"`
+
+### Benefits
+
+✅ **Single Source of Truth** - Generated once during discovery, not at runtime  
+✅ **Stable Test References** - Tests use semantic names like `login_page.username_input`  
+✅ **No Manual Maintenance** - Automatically derived from UI metadata  
+✅ **Self-Documenting** - Names describe element purpose  
+✅ **Vendor-Neutral** - Override methods in subclasses for different UIs
+
+### Customization
+
+For different applications, subclass `UIDiscoveryTool` and override the naming methods:
+
+```python
+class MyAppDiscoveryTool(UIDiscoveryTool):
+    def _classify_page(self, url: str) -> str:
+        """Custom page classification for MyApp."""
+        if "/dashboard" in url:
+            return "dashboard"
+        # ... more patterns
+        return super()._classify_page(url)
+    
+    def _generate_friendly_page_name(self, url: str, page_type: str) -> str:
+        """Custom page naming for MyApp."""
+        if page_type == "dashboard":
+            return "main_dashboard_page"
+        return super()._generate_friendly_page_name(url, page_type)
+```
+
 ## Output Format
 
 The tool generates a **NetworkX graph in node-link JSON format**, which can be loaded by downstream tools (selector_generator.py, navigation_generator.py) or visualized with graph tools.
 
-### Legacy Format Reference
+### Current Format (NetworkX Graph with Friendly Names)
 
-For reference, the previous flat JSON structure looked like this:
-
-### Current Format (NetworkX Graph)
-
-The tool now outputs a **NetworkX node-link format**:
+The tool now outputs a **NetworkX node-link format** with friendly names embedded:
 
 ```json
 {
@@ -355,7 +405,8 @@ The tool now outputs a **NetworkX node-link format**:
       "id": "http://127.0.0.1:3000/#!/overview",
       "node_type": "Page",
       "title": "Overview - GenieACS",
-      "page_type": "home"
+      "page_type": "home",
+      "friendly_name": "home_page"
     },
     {
       "id": "elem_button_1",
@@ -363,7 +414,8 @@ The tool now outputs a **NetworkX node-link format**:
       "element_type": "button",
       "text": "Log out",
       "locator_type": "id",
-      "locator_value": "logout-btn"
+      "locator_value": "logout-btn",
+      "friendly_name": "log_out_button"
     }
   ],
   "links": [
@@ -381,6 +433,7 @@ The tool now outputs a **NetworkX node-link format**:
 - Supports complex relationships (modals, forms, conditional navigation)
 - Compatible with NetworkX for further analysis
 - Can be exported to GraphML/GEXF for visualization
+- **Includes friendly names** for human-readable test references
 
 ### Legacy Flat Format (Deprecated)
 

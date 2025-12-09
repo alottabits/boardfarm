@@ -580,10 +580,12 @@ class UIDiscoveryTool:
                 
                 # Discover the login page (add to graph)
                 page_type = self._classify_page(normalized_login_url)
+                friendly_name = self._generate_friendly_page_name(normalized_login_url, page_type)
                 self.graph.add_page(
                     url=normalized_login_url,
                     title=self.driver.title,
-                    page_type=page_type
+                    page_type=page_type,
+                    friendly_name=friendly_name
                 )
                 
                 # Discover elements on login page
@@ -720,10 +722,12 @@ class UIDiscoveryTool:
 
             # Add page to graph
             page_type = self._classify_page(url)
+            friendly_name = self._generate_friendly_page_name(url, page_type)
             self.graph.add_page(
                 url=url,
                 title=self.driver.title,
-                page_type=page_type
+                page_type=page_type,
+                friendly_name=friendly_name
             )
             
             # Discover elements and add to graph
@@ -788,6 +792,16 @@ class UIDiscoveryTool:
                 # Truncate onclick to avoid excessive length
                 onclick_hint = onclick[:100] if onclick else None
                 
+                # Generate friendly name from element metadata
+                elem_info = {
+                    'text': text,
+                    'title': title,
+                    'aria_label': aria_label,
+                    'name': btn_id,
+                    'element_type': 'button'
+                }
+                friendly_name = self._generate_friendly_element_name(elem_info, 'button')
+                
                 self.graph.add_element(
                     page_url,
                     "button",
@@ -805,7 +819,8 @@ class UIDiscoveryTool:
                     role=role,
                     data_toggle=data_toggle,
                     data_dismiss=data_dismiss,
-                    visibility_observed="visible" if is_visible else "hidden"
+                    visibility_observed="visible" if is_visible else "hidden",
+                    friendly_name=friendly_name
                 )
             except StaleElementReferenceException:
                 logger.debug("Skipping stale button element %d", i)
@@ -834,6 +849,16 @@ class UIDiscoveryTool:
                 data_action = inp.get_attribute("data-action")
                 title = inp.get_attribute("title")
                 
+                # Generate friendly name from element metadata
+                elem_info = {
+                    'placeholder': placeholder,
+                    'aria_label': aria_label,
+                    'name': name,
+                    'title': title,
+                    'element_type': 'input'
+                }
+                friendly_name = self._generate_friendly_element_name(elem_info, 'input')
+                
                 self.graph.add_element(
                     page_url,
                     "input",
@@ -849,7 +874,8 @@ class UIDiscoveryTool:
                     role=role,
                     data_action=data_action,
                     title=title,
-                    visibility_observed="visible" if is_visible else "hidden"
+                    visibility_observed="visible" if is_visible else "hidden",
+                    friendly_name=friendly_name
                 )
             except StaleElementReferenceException:
                 logger.debug("Skipping stale input element %d", i)
@@ -873,6 +899,15 @@ class UIDiscoveryTool:
                 data_action = sel.get_attribute("data-action")
                 role = sel.get_attribute("role")
                 
+                # Generate friendly name from element metadata
+                elem_info = {
+                    'aria_label': aria_label,
+                    'title': title,
+                    'name': name,
+                    'element_type': 'select'
+                }
+                friendly_name = self._generate_friendly_element_name(elem_info, 'select')
+                
                 self.graph.add_element(
                     page_url,
                     "select",
@@ -884,7 +919,8 @@ class UIDiscoveryTool:
                     title=title,
                     data_action=data_action,
                     role=role,
-                    visibility_observed="visible" if is_visible else "hidden"
+                    visibility_observed="visible" if is_visible else "hidden",
+                    friendly_name=friendly_name
                 )
             except StaleElementReferenceException:
                 logger.debug("Skipping stale select element %d", i)
@@ -896,6 +932,9 @@ class UIDiscoveryTool:
     def _classify_page(self, url: str) -> str:
         """Classify the page type based on URL patterns.
         
+        Application-specific logic for GenieACS. Override this method
+        in subclasses for different applications.
+        
         Strips query parameters before classification to ensure consistent
         page types (e.g., #!/devices?filter=X -> device_list, not device_details).
         
@@ -903,7 +942,7 @@ class UIDiscoveryTool:
             url: URL to classify
             
         Returns:
-            Page type string
+            Page type string (used to generate friendly_name)
         """
         parsed = urlparse(url)
         # For hash-based SPAs, use the fragment; otherwise use path
@@ -917,7 +956,7 @@ class UIDiscoveryTool:
         if path.startswith("!"):
             path = path[1:]
 
-        # Common patterns
+        # GenieACS-specific patterns
         if "/login" in path:
             return "login"
         if "/devices/" in path and len(path.split("/")) > 2:
@@ -948,6 +987,77 @@ class UIDiscoveryTool:
             return "home"
 
         return "unknown"
+    
+    def _generate_friendly_page_name(self, url: str, page_type: str) -> str:
+        """Generate friendly page name for use in tests.
+        
+        Generates a consistent, readable name from page_type that will be
+        stored in the graph and used by BaseGuiComponent for navigation.
+        
+        Override this method in subclasses for application-specific naming.
+        
+        Args:
+            url: Page URL (for context if needed)
+            page_type: Page type from _classify_page()
+            
+        Returns:
+            Friendly name (e.g., "login_page", "home_page", "device_list_page")
+            
+        Example:
+            >>> tool._generate_friendly_page_name("http://host/#!/login", "login")
+            "login_page"
+        """
+        # Simple and consistent: just append "_page" to page_type
+        return f"{page_type}_page"
+    
+    def _generate_friendly_element_name(self, elem_info: dict, element_type: str) -> str:
+        """Generate friendly element name for use in tests.
+        
+        Creates a readable name from element metadata that will be stored in
+        the graph and used by BaseGuiComponent for element finding.
+        
+        Strategy (priority order):
+        1. Use text if available (e.g., "Log out" → "log_out_button")
+        2. Use title if available
+        3. Use placeholder if available (for inputs)
+        4. Use aria_label if available
+        5. Use name if available
+        6. Fallback to element_type + counter
+        
+        Args:
+            elem_info: Element metadata dictionary
+            element_type: Type of element (button, input, link, etc.)
+            
+        Returns:
+            Friendly element name
+            
+        Example:
+            >>> elem = {"text": "Log out", "element_type": "button"}
+            >>> tool._generate_friendly_element_name(elem, "button")
+            "log_out_button"
+        """
+        # Extract potential name sources (handle None values)
+        text = (elem_info.get('text') or '').strip()
+        title = (elem_info.get('title') or '').strip()
+        placeholder = (elem_info.get('placeholder') or '').strip()
+        aria_label = (elem_info.get('aria_label') or '').strip()
+        name = (elem_info.get('name') or '').strip()
+        
+        # Priority order for naming
+        name_source = text or title or placeholder or aria_label or name
+        
+        if name_source:
+            # Clean up name: "Log out" → "log_out"
+            clean_name = name_source.lower()
+            clean_name = clean_name.replace(' ', '_')
+            clean_name = clean_name.replace('-', '_')
+            # Remove special characters
+            clean_name = ''.join(c for c in clean_name if c.isalnum() or c == '_')
+            return f"{clean_name}_{element_type}"
+        else:
+            # Fallback: use element type + counter
+            # Note: counter is in self._element_counter
+            return f"{element_type}_{self._element_counter}"
 
     def _find_links(self, current_page_url: str) -> list[str]:
         """Find all internal navigation links on current page.
@@ -1006,6 +1116,16 @@ class UIDiscoveryTool:
                     # Determine element type (svg_link for SVG elements, link for HTML)
                     element_type = "svg_link" if is_svg_link else "link"
                     
+                    # Generate friendly name from element metadata
+                    elem_info = {
+                        'text': text,
+                        'title': title,
+                        'aria_label': aria_label,
+                        'name': link_id,
+                        'element_type': element_type
+                    }
+                    friendly_name = self._generate_friendly_element_name(elem_info, element_type)
+                    
                     # Add link element to graph with enhanced metadata
                     link_elem_id = self.graph.add_element(
                         current_page_url,
@@ -1020,7 +1140,8 @@ class UIDiscoveryTool:
                         aria_label=aria_label,
                         role=role,
                         data_action=data_action,
-                        visibility_observed="visible" if is_visible else "hidden"
+                        visibility_observed="visible" if is_visible else "hidden",
+                        friendly_name=friendly_name
                     )
                     
                     # Debug logging for SVG links
@@ -1491,6 +1612,13 @@ class UIDiscoveryTool:
                     
                     # Add modal's elements to graph
                     for btn_info in modal_info.get("buttons", []):
+                        # Generate friendly name for modal button
+                        elem_info = {
+                            'text': btn_info.get("text", ""),
+                            'element_type': 'button'
+                        }
+                        friendly_name = self._generate_friendly_element_name(elem_info, 'button')
+                        
                         self.graph.add_element(
                             modal_id,
                             "button",
@@ -1499,10 +1627,19 @@ class UIDiscoveryTool:
                             text=btn_info.get("text", ""),
                             button_type=btn_info.get("type", ""),
                             button_class=btn_info.get("class", ""),
-                            visibility_observed="visible"
+                            visibility_observed="visible",
+                            friendly_name=friendly_name
                         )
                     
                     for input_info in modal_info.get("inputs", []):
+                        # Generate friendly name for modal input
+                        elem_info = {
+                            'placeholder': input_info.get("placeholder", ""),
+                            'name': input_info.get("name", ""),
+                            'element_type': 'input'
+                        }
+                        friendly_name = self._generate_friendly_element_name(elem_info, 'input')
+                        
                         self.graph.add_element(
                             modal_id,
                             "input",
@@ -1512,17 +1649,26 @@ class UIDiscoveryTool:
                             name=input_info.get("name", ""),
                             placeholder=input_info.get("placeholder", ""),
                             required=input_info.get("required", False),
-                            visibility_observed="visible"
+                            visibility_observed="visible",
+                            friendly_name=friendly_name
                         )
                     
                     for select_info in modal_info.get("selects", []):
+                        # Generate friendly name for modal select
+                        elem_info = {
+                            'name': select_info.get("name", ""),
+                            'element_type': 'select'
+                        }
+                        friendly_name = self._generate_friendly_element_name(elem_info, 'select')
+                        
                         self.graph.add_element(
                             modal_id,
                             "select",
                             "css",
                             select_info.get("css_selector", ""),
                             name=select_info.get("name", ""),
-                            visibility_observed="visible"
+                            visibility_observed="visible",
+                            friendly_name=friendly_name
                         )
                     
                     # Close modal
