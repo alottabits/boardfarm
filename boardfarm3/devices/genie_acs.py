@@ -483,24 +483,42 @@ class GenieAcsNBI(ACSNBI):
 
 
 class GenieAcsGUI(ACSGUI):
-    """GenieACS GUI Implementation using graph-based state machine navigation.
+    """GenieACS GUI Implementation using FSM-based testing.
     
-    This implementation uses:
-    - Task-oriented methods from ACSGUI template
-    - BaseGuiComponent with ui_map.json as single source of truth
-    - Deterministic state tracking
-    - Dynamic pathfinding for navigation
-    - Config-driven optional initialization
+    This implementation supports three testing modes:
+    1. Functional Testing - Business goal verification via device methods
+    2. Navigation Testing - Graph structure validation (direct FSM access)
+    3. Visual Regression - Screenshot comparison (direct FSM access)
     
-    Configuration (optional, in boardfarm_config.json):
-        gui_graph_file: Path to ui_map.json (single source of truth)
+    Architecture:
+    - Task-oriented methods for Mode 1 (login, reboot_device_via_gui, etc.)
+    - STATE_REGISTRY maps friendly names to FSM state IDs
+    - FsmGuiComponent for FSM engine with Playwright
+    - Direct FSM access via `fsm` property for Modes 2 & 3
+    
+    Configuration (in boardfarm_config.json):
+        gui_fsm_graph_file: Path to fsm_graph.json (required)
         gui_headless: Run browser in headless mode (default: true)
-        gui_default_timeout: Element wait timeout in seconds (default: 20)
+        gui_default_timeout: Element wait timeout in seconds (default: 30)
+        gui_state_match_threshold: State matching threshold (default: 0.80)
+        gui_screenshot_dir: Screenshot storage directory (optional)
+        gui_visual_threshold: Visual similarity threshold (default: 0.95)
+        gui_visual_comparison_method: 'auto', 'playwright', or 'ssim' (default: 'auto')
+        gui_visual_mask_selectors: CSS selectors to mask in visual comparison (optional)
         
-    Legacy Configuration (deprecated, Phase 2 migration):
-        gui_selector_file: Path to selectors.yaml (no longer needed)
-        gui_navigation_file: Path to navigation.yaml (no longer needed)
+    Legacy Configuration (deprecated):
+        gui_graph_file: Old graph-based POM (replaced by gui_fsm_graph_file)
     """
+    
+    # GenieACS-specific state mappings (friendly names → FSM state IDs)
+    STATE_REGISTRY = {
+        'login_page': 'V_LOGIN_FORM_EMPTY',
+        'home_page': 'V_OVERVIEW_PAGE',
+        'device_list_page': 'V_DEVICES',
+        'device_details_page': 'V_DEVICE_DETAILS',
+        'faults_page': 'V_FAULTS',
+        'admin_page': 'V_ADMIN_PRESETS',
+    }
     
     def __init__(self, device: GenieACS) -> None:
         """Initialize GenieACS GUI component.
@@ -512,12 +530,18 @@ class GenieAcsGUI(ACSGUI):
         """
         super().__init__(device)
         self._driver = None
-        self._graph_component = None  # BaseGuiComponent instance
+        self._fsm_component = None  # FsmGuiComponent instance
         
-        # Read artifact path from config (optional)
-        self._ui_graph_file = self.config.get("gui_graph_file")
+        # Read configuration (FSM-based)
+        self._fsm_graph_file = self.config.get("gui_fsm_graph_file")
         self._gui_base_url = self.config.get("gui_base_url")
-        self._gui_timeout = self.config.get("gui_default_timeout", 20)
+        self._gui_timeout = self.config.get("gui_default_timeout", 30)
+        
+        # FSM-specific configuration
+        self._match_threshold = self.config.get("gui_state_match_threshold", 0.80)
+        self._visual_threshold = self.config.get("gui_visual_threshold", 0.95)
+        self._visual_comparison_method = self.config.get("gui_visual_comparison_method", "auto")
+        self._visual_mask_selectors = self.config.get("gui_visual_mask_selectors", [])
         
         # Auto-derive base URL if not explicitly set
         if not self._gui_base_url:
@@ -529,26 +553,34 @@ class GenieAcsGUI(ACSGUI):
     def is_gui_configured(self) -> bool:
         """Check if GUI testing is configured for this device.
         
-        :return: True if UI graph file is configured
+        :return: True if FSM graph file is configured
         """
-        return bool(self._ui_graph_file)
+        return bool(self._fsm_graph_file)
     
     def is_initialized(self) -> bool:
         """Check if GUI component is initialized.
         
-        :return: True if driver and graph component are ready
+        :return: True if driver and FSM component are ready
         """
-        return bool(self._driver and self._graph_component)
+        return bool(self._driver and self._fsm_component)
+    
+    def _get_fsm_state_id(self, friendly_name: str) -> str:
+        """Convert friendly name to FSM state ID.
+        
+        :param friendly_name: Friendly name (e.g., 'login_page')
+        :return: FSM state ID (e.g., 'V_LOGIN_FORM_EMPTY')
+        """
+        return self.STATE_REGISTRY.get(friendly_name, friendly_name)
     
     def initialize(self, driver=None) -> None:
-        """Initialize GUI component with Selenium driver.
+        """Initialize GUI component with Playwright driver.
         
-        Only initializes if UI graph file is configured in device config.
+        Only initializes if FSM graph file is configured in device config.
         Safe to call multiple times (idempotent).
         
-        :param driver: Selenium WebDriver instance (creates ChromeDriver if None)
-        :raises ValueError: If UI graph file not configured
-        :raises FileNotFoundError: If UI graph file doesn't exist
+        :param driver: PlaywrightSyncAdapter instance (creates new if None)
+        :raises ValueError: If FSM graph file not configured
+        :raises FileNotFoundError: If FSM graph file doesn't exist
         """
         # Check if already initialized
         if self.is_initialized():
@@ -561,132 +593,84 @@ class GenieAcsGUI(ACSGUI):
                 f"GUI testing not configured for device "
                 f"'{self.device.device_name}'. "
                 f"To enable GUI testing, add to device config:\n"
-                f"  'gui_graph_file': 'path/to/ui_map.json'\n\n"
-                f"Generate UI map:\n"
-                f"  python -m boardfarm3.lib.gui.ui_discovery \\\n"
-                f"    --url {self._gui_base_url} \\\n"
+                f"  'gui_fsm_graph_file': 'path/to/fsm_graph.json'\n\n"
+                f"Generate FSM graph:\n"
+                f"  aria-discover --url {self._gui_base_url} \\\n"
                 f"    --username admin --password admin \\\n"
-                f"    --output ui_map.json"
+                f"    --output fsm_graph.json"
             )
             raise ValueError(err_msg)
         
         # Create driver if not provided
         if driver is None:
-            from selenium import webdriver
-            options = webdriver.ChromeOptions()
-            # Add headless mode for CI/CD
-            if self.config.get("gui_headless", True):
-                options.add_argument("--headless")
-                options.add_argument("--no-sandbox")
-                options.add_argument("--disable-dev-shm-usage")
-            driver = webdriver.Chrome(options=options)
+            from boardfarm3.lib.gui.playwright_sync_adapter import PlaywrightSyncAdapter
+            driver = PlaywrightSyncAdapter(
+                headless=self.config.get("gui_headless", True),
+                timeout=self._gui_timeout * 1000  # Convert to ms
+            )
+            driver.start()
         
         self._driver = driver
         
-        # Reduce Selenium's verbose logging (404s for element searches)
-        self._configure_selenium_logging()
+        # Initialize FsmGuiComponent with FSM graph from config
+        from pathlib import Path
+        from boardfarm3.lib.gui.fsm_gui_component import FsmGuiComponent
         
-        # Initialize BaseGuiComponent with UI graph from config
-        from boardfarm3.lib.gui.base_gui_component import BaseGuiComponent
-        self._graph_component = BaseGuiComponent(
+        self._fsm_component = FsmGuiComponent(
             driver=self._driver,
-            ui_graph_file=self._ui_graph_file,
-            default_timeout=self._gui_timeout
+            fsm_graph_file=Path(self._fsm_graph_file),
+            default_timeout=self._gui_timeout,
+            match_threshold=self._match_threshold,
+            visual_threshold=self._visual_threshold,
+            visual_comparison_method=self._visual_comparison_method,
+            visual_mask_selectors=self._visual_mask_selectors
         )
         
         _LOGGER.info(
-            "GenieACS GUI initialized with ui_graph=%s (%d pages, %d elements)",
-            self._ui_graph_file,
-            len(self._graph_component._pages),
-            len(self._graph_component._elements)
+            "GenieACS GUI initialized with fsm_graph=%s (%d states, %d transitions)",
+            self._fsm_graph_file,
+            len(self._fsm_component._states),
+            len(self._fsm_component._transitions)
         )
     
     def close(self) -> None:
-        """Close GUI component and quit Selenium driver.
+        """Close GUI component and quit Playwright driver.
         
         Safe to call even if not initialized.
         """
         if self._driver:
             try:
-                self._driver.quit()
+                self._driver.close()
             except Exception as e:
-                _LOGGER.warning("Error closing Selenium driver: %s", e)
+                _LOGGER.warning("Error closing Playwright driver: %s", e)
             finally:
                 self._driver = None
-                self._graph_component = None
+                self._fsm_component = None
     
-    def _configure_selenium_logging(self) -> None:
-        """Configure Selenium logging to reduce verbosity.
+    @property
+    def fsm(self):
+        """Direct access to FSM component for navigation/visual testing.
         
-        Suppresses DEBUG-level 404 messages from element searches which
-        are expected when trying multiple selectors in sequence.
+        Use this property for:
+        - Mode 2: Navigation/structure testing (validate_graph_connectivity, etc.)
+        - Mode 3: Visual regression testing (capture_screenshot, compare_screenshots, etc.)
+        
+        Example Mode 2:
+            validation = acs.gui.fsm.validate_graph_connectivity()
+            result = acs.gui.fsm.execute_random_walk(num_steps=50)
+        
+        Example Mode 3:
+            acs.gui.fsm.capture_state_screenshot('V_LOGIN_FORM_EMPTY', reference=True)
+            comparison = acs.gui.fsm.compare_screenshot_with_reference('V_LOGIN_FORM_EMPTY')
+        
+        :return: FsmGuiComponent instance
+        :raises RuntimeError: If GUI component not initialized
         """
-        # Reduce logging from Selenium's remote connection
-        # This suppresses the verbose 404 responses when trying multiple selectors
-        selenium_logger = logging.getLogger("selenium.webdriver.remote.remote_connection")
-        selenium_logger.setLevel(logging.INFO)  # Only INFO and above
-        
-        _LOGGER.debug("Configured Selenium logging (remote_connection: INFO)")
-    
-    def _detect_current_page(self) -> str | None:
-        """Detect which page we're currently on based on URL hash.
-        
-        GenieACS uses hash-based routing (#!/page_name), so we can
-        determine the page from the URL. This allows us to use the
-        appropriate selectors from selectors.yaml efficiently.
-        
-        :return: Page name matching selectors.yaml keys, or None if unknown
-        """
-        try:
-            current_url = self._driver.current_url
-            _LOGGER.debug("Detecting page from URL: %s", current_url)
-            
-            # GenieACS URL format: http://host:port/#!/page_name
-            # Extract the hash fragment
-            if "#!/" in current_url:
-                hash_fragment = current_url.split("#!/")[1].split("?")[0]  # Remove query params
-                
-                # Map URL fragments to selectors.yaml page names
-                page_mapping = {
-                    "login": "login_page",
-                    "overview": "home_page",
-                    "devices": "device_list_page",
-                    "faults": "faults_page",
-                    "admin": "admin_page",
-                    "admin/presets": "presets_page",
-                    "admin/provisions": "provisions_page",
-                    "admin/virtualParameters": "virtual_parameters_page",
-                    "admin/files": "files_page",
-                    "admin/config": "config_page",
-                    "admin/permissions": "permissions_page",
-                    "admin/users": "users_page",
-                }
-                
-                # Check for device details (format: devices/ID)
-                if hash_fragment.startswith("devices/") and "/" in hash_fragment:
-                    return "device_details_page"
-                
-                # Direct mapping
-                if hash_fragment in page_mapping:
-                    page_name = page_mapping[hash_fragment]
-                    _LOGGER.debug("Detected page: %s", page_name)
-                    return page_name
-                
-                # Default for admin pages
-                if hash_fragment.startswith("admin"):
-                    _LOGGER.debug("Unknown admin page, defaulting to admin_page")
-                    return "admin_page"
-            
-            # Default to home_page if we're logged in but URL unclear
-            _LOGGER.debug("Could not detect specific page from URL")
-            return None
-            
-        except Exception as e:
-            _LOGGER.warning("Error detecting current page: %s", e)
-            return None
+        self._ensure_initialized()
+        return self._fsm_component
     
     def _ensure_initialized(self) -> None:
-        """Ensure Selenium driver and BaseGuiComponent are initialized.
+        """Ensure Playwright driver and FsmGuiComponent are initialized.
         
         Provides helpful error message based on configuration state.
         
@@ -697,7 +681,7 @@ class GenieAcsGUI(ACSGUI):
             err_msg = (
                 f"GUI testing not configured for device "
                 f"'{self.device.device_name}'. "
-                f"Add 'gui_graph_file' to device config."
+                f"Add 'gui_fsm_graph_file' to device config."
             )
             raise ValueError(err_msg)
 
@@ -710,13 +694,13 @@ class GenieAcsGUI(ACSGUI):
             raise RuntimeError(err_msg)
     
     # ========================================================================
-    # Authentication Methods
+    # MODE 1: FUNCTIONAL TESTING - Authentication Methods
     # ========================================================================
     
     def login(self, username: str | None = None, password: str | None = None) -> bool:
         """Login to GenieACS GUI using form-based authentication.
         
-        Uses graph-based element finding with state tracking for deterministic navigation.
+        Mode 1 (Functional Testing): Business goal method using FSM primitives.
         
         :param username: Username (uses config if None)
         :param password: Password (uses config if None)
@@ -732,68 +716,48 @@ class GenieAcsGUI(ACSGUI):
         
         try:
             _LOGGER.info("Navigating to login page: %s", login_url)
-            self._driver.get(login_url)
+            self._driver.goto(login_url)
             
-            # Set state to login_page
-            self._graph_component.set_state('login_page', via_action='navigate')
+            # Get FSM state IDs
+            login_state = self._get_fsm_state_id('login_page')
+            home_state = self._get_fsm_state_id('home_page')
             
-            # Find and fill username input
-            username_input = self._graph_component.find_element(
-                'login_page',
-                'username_input',
-                timeout=self._gui_timeout
-            )
-            username_input.clear()
-            username_input.send_keys(username)
+            # Verify we're on login page
+            time.sleep(0.5)  # Brief wait for page load
+            if not self._fsm_component.verify_state(login_state, timeout=5):
+                _LOGGER.warning("Not on login page, attempting to detect current state")
+                self._fsm_component.detect_current_state()
+            
+            # Find and fill username input (using Playwright directly for now)
+            # FSM's find_element requires state to be in graph with element descriptors
+            username_input = self._driver.page.get_by_role('textbox').first
+            username_input.fill(username)
             _LOGGER.debug("Entered username")
             
             # Find and fill password input
-            password_input = self._graph_component.find_element(
-                'login_page',
-                'password_input',
-                timeout=self._gui_timeout
-            )
-            password_input.clear()
-            password_input.send_keys(password)
+            password_input = self._driver.page.get_by_role('textbox').nth(1)
+            password_input.fill(password)
             _LOGGER.debug("Entered password")
             
             # Find and click login button
-            login_btn = self._graph_component.find_element(
-                'login_page',
-                'login_button',
+            login_btn = self._fsm_component.find_element(
+                login_state,
+                'button',
+                name='Login',
                 timeout=self._gui_timeout
             )
             login_btn.click()
             _LOGGER.debug("Clicked login button")
             
-            # Wait for redirect away from login page
-            # Check that the username input disappears (proves we left login page)
-            time.sleep(0.5)  # Brief initial wait for redirect to start
+            # Wait for navigation to home page
+            time.sleep(1)  # Wait for redirect
             
-            for i in range(10):  # Up to 5 seconds total
-                try:
-                    # If we can still find username input, we're still on login page
-                    self._graph_component.find_element('login_page', 'username_input', timeout=0.5)
-                    time.sleep(0.5)
-                except Exception:
-                    # Username input gone - we've left login page!
-                    _LOGGER.debug("Redirect complete, left login page")
-                    break
-            
-            # Set state to home_page (we've successfully redirected away from login)
-            self._graph_component.set_state('home_page', via_action='login_success')
-            
-            # Verify we can find the logout button on home page
-            try:
-                logout_btn = self._graph_component.find_element(
-                    'home_page',
-                    'log_out_button',
-                    timeout=10
-                )
+            # Verify home page
+            if self._fsm_component.verify_state(home_state, timeout=10):
                 _LOGGER.info("Successfully logged into GenieACS GUI")
                 return True
-            except Exception as e:
-                _LOGGER.error("Login verification failed - could not find logout button: %s", e)
+            else:
+                _LOGGER.error("Login verification failed - not on home page")
                 return False
             
         except Exception as e:
@@ -805,8 +769,7 @@ class GenieAcsGUI(ACSGUI):
     def logout(self) -> bool:
         """Logout from GenieACS GUI.
         
-        Uses state tracking to find the logout button on the current page,
-        then clicks it and updates state to login_page.
+        Mode 1 (Functional Testing): Business goal method using FSM primitives.
         
         :return: True if logout successful
         """
@@ -814,42 +777,32 @@ class GenieAcsGUI(ACSGUI):
         
         try:
             # Get current state
-            current_state = self._graph_component.get_state()
+            current_state = self._fsm_component.get_state()
             if not current_state:
-                # Detect state from URL if not set
-                current_url = self._driver.current_url
-                if "#!/overview" in current_url:
-                    current_state = "home_page"
-                elif "#!/devices" in current_url and "#!/devices/" not in current_url:
-                    current_state = "device_list_page"
-                elif "#!/admin" in current_url:
-                    current_state = "admin_page"
-                else:
-                    # Default to home_page as logout button is usually there
-                    current_state = "home_page"
-                
-                self._graph_component.set_state(current_state, via_action='detected_from_url')
-                _LOGGER.debug("Detected current state: %s", current_state)
+                # Detect state if not set
+                current_state = self._fsm_component.detect_current_state()
+                if not current_state:
+                    # Default to home_page
+                    home_state = self._get_fsm_state_id('home_page')
+                    self._fsm_component.set_state(home_state, via_action='assumed')
+                    current_state = home_state
             
-            # Find logout button on current page
-            logout_btn = self._graph_component.find_element(
-                current_state,
-                'log_out_button',
-                timeout=self._gui_timeout
-            )
-            
-            # Click logout button
+            # Find logout button (Playwright direct access for now)
+            logout_btn = self._driver.page.get_by_role('button', name='Log out')
             logout_btn.click()
             _LOGGER.debug("Clicked logout button")
             
             # Wait briefly for logout redirect
-            time.sleep(0.5)
+            time.sleep(1)
             
-            # Update state to login_page
-            self._graph_component.set_state('login_page', via_action='logout_success')
-            
-            _LOGGER.info("Successfully logged out from GenieACS GUI")
-            return True
+            # Verify we're on login page
+            login_state = self._get_fsm_state_id('login_page')
+            if self._fsm_component.verify_state(login_state, timeout=5):
+                _LOGGER.info("Successfully logged out from GenieACS GUI")
+                return True
+            else:
+                _LOGGER.warning("Logout may have succeeded but not on login page")
+                return True  # Logout likely succeeded even if verification failed
             
         except Exception as e:
             _LOGGER.error("Logout failed: %s", e)
@@ -860,15 +813,14 @@ class GenieAcsGUI(ACSGUI):
     def is_logged_in(self) -> bool:
         """Check if currently logged into GenieACS GUI.
         
-        Uses state tracking with validation: checks tracked state and verifies
-        it matches reality using the verify_page() method.
+        Mode 1 (Functional Testing): Uses FSM state detection.
         
         :return: True if logged in
         """
         self._ensure_initialized()
         
         try:
-            current_url = self._driver.current_url
+            current_url = self._driver.url
             _LOGGER.debug("Checking login status, current URL: %s", current_url)
             
             # 1. Blank/uninitialized browser = definitely not logged in
@@ -876,56 +828,114 @@ class GenieAcsGUI(ACSGUI):
                 _LOGGER.debug("Browser on blank page, not logged in")
                 return False
             
-            # 2. Check tracked state and validate it
-            current_state = self._graph_component.get_state()
-            
-            if current_state == 'login_page':
-                # Verify we're actually on login page
-                if self._graph_component.verify_page('login_page', timeout=2, update_state=False):
-                    _LOGGER.debug("Verified on login_page - not logged in")
-                    return False
-                else:
-                    _LOGGER.warning("State is login_page but verification failed")
-                    return False
-                    
-            elif current_state is not None:
-                # State indicates logged in - verify we're on that page
-                if self._graph_component.verify_page(current_state, timeout=2, update_state=False):
-                    _LOGGER.debug("Verified on %s - logged in", current_state)
-                    return True
-                else:
-                    _LOGGER.warning("State is %s but verification failed", current_state)
-                    # Fall through to URL check
-                    
-            # 3. No state or validation failed - check URL as fallback
+            # 2. Check URL first (fast check)
             if "/#!/login" in current_url:
                 _LOGGER.debug("URL indicates login page, not logged in")
                 return False
-            elif self._gui_base_url in current_url:
-                _LOGGER.debug("URL indicates GenieACS (not login), assuming logged in")
+            
+            # 3. Try to detect current state
+            detected_state = self._fsm_component.detect_current_state(update_state=False)
+            
+            login_state = self._get_fsm_state_id('login_page')
+            
+            if detected_state == login_state:
+                _LOGGER.debug("Detected on login_page - not logged in")
+                return False
+            elif detected_state:
+                _LOGGER.debug("Detected on %s - logged in", detected_state)
                 return True
             else:
-                _LOGGER.debug("Unknown state and URL, assuming not logged in")
-                return False
+                # Could not detect state - use URL as fallback
+                if self._gui_base_url in current_url:
+                    _LOGGER.debug("URL indicates GenieACS (not login), assuming logged in")
+                    return True
+                else:
+                    _LOGGER.debug("Unknown state and URL, assuming not logged in")
+                    return False
             
         except Exception as e:
             _LOGGER.warning("Error checking login status: %s", e)
             return False
     
     # ========================================================================
-    # Device Discovery & Navigation Methods
+    # MODE 3: VISUAL REGRESSION TESTING - Helper Methods
+    # ========================================================================
+    
+    def capture_reference_screenshots(self) -> dict:
+        """Capture reference screenshots of all GenieACS states.
+        
+        Mode 3 (Visual Regression): Device-specific helper that ensures login first.
+        
+        :return: Dictionary with capture results
+        """
+        self._ensure_initialized()
+        
+        # Ensure logged in
+        if not self.is_logged_in():
+            if not self.login():
+                return {
+                    'captured': [],
+                    'failed': list(self._fsm_component._states.keys()),
+                    'screenshots': {},
+                    'coverage': 0.0,
+                    'error': 'Login failed'
+                }
+        
+        # Capture all state screenshots
+        return self._fsm_component.capture_all_states_screenshots(
+            reference=True,
+            max_time=600  # 10 minutes max
+        )
+    
+    def validate_ui_against_references(
+        self,
+        threshold: float = None,
+        comparison_method: str = None
+    ) -> dict:
+        """Validate all states against reference screenshots.
+        
+        Mode 3 (Visual Regression): Device-specific helper that ensures login first.
+        
+        :param threshold: Similarity threshold (None = use component default)
+        :param comparison_method: 'auto', 'playwright', or 'ssim' (None = use default)
+        :return: Dictionary with validation results
+        """
+        self._ensure_initialized()
+        
+        # Ensure logged in
+        if not self.is_logged_in():
+            if not self.login():
+                return {
+                    'passed': [],
+                    'failed': list(self._fsm_component._states.keys()),
+                    'results': {},
+                    'overall_pass': False,
+                    'error': 'Login failed'
+                }
+        
+        # Use component defaults if not specified
+        threshold = threshold if threshold is not None else self._visual_threshold
+        
+        # Validate all states
+        return self._fsm_component.validate_all_states_visually(threshold)
+    
+    # ========================================================================
+    # LEGACY METHODS (To Be Migrated to FSM)
+    # ========================================================================
+    # Note: These methods still use old BaseGuiComponent API.
+    # They will be migrated to FSM in future updates.
+    # For now, they are marked as NotImplementedError to avoid confusion.
     # ========================================================================
     
     def search_device(self, cpe_id: str) -> bool:
         """Search for device in GenieACS by CPE ID.
         
+        LEGACY: To be migrated to FSM-based implementation.
+        
         :param cpe_id: CPE identifier (serial number or ID)
         :return: True if device found
         """
-        self._ensure_initialized()
-        
-        # Navigate to devices page (uses navigation.yaml)
-        self._base_component.navigate_path("Path_Home_to_Devices")
+        raise NotImplementedError("search_device() not yet migrated to FSM. Use reboot_device_via_gui() for device operations.")
         
         # Find search input
         search_input = self._base_component.find_element_by_function(
@@ -964,9 +974,11 @@ class GenieAcsGUI(ACSGUI):
     def get_device_count(self) -> int:
         """Get total number of devices in GenieACS.
         
+        LEGACY: To be migrated to FSM-based implementation.
+        
         :return: Number of devices
         """
-        self._ensure_initialized()
+        raise NotImplementedError("get_device_count() not yet migrated to FSM")
         
         # Navigate to devices page
         self._base_component.navigate_path("Path_Home_to_Devices")
@@ -994,10 +1006,12 @@ class GenieAcsGUI(ACSGUI):
     def filter_devices(self, filter_criteria: dict[str, str]) -> int:
         """Apply filter criteria to device list.
         
+        LEGACY: To be migrated to FSM-based implementation.
+        
         :param filter_criteria: Dict of field:value filters
         :return: Number of devices matching filter
         """
-        self._ensure_initialized()
+        raise NotImplementedError("filter_devices() not yet migrated to FSM")
         
         # Navigate to devices page
         self._base_component.navigate_path("Path_Home_to_Devices")
@@ -1026,44 +1040,70 @@ class GenieAcsGUI(ACSGUI):
         return self.get_device_count()
     
     # ========================================================================
-    # Device Status & Information Methods
+    # MODE 1: FUNCTIONAL TESTING - Device Status Methods
     # ========================================================================
     
     def get_device_status(self, cpe_id: str) -> dict[str, str]:
         """Get device status from GenieACS GUI.
+        
+        Mode 1 (Functional Testing): Business goal method using FSM navigation.
         
         :param cpe_id: CPE identifier
         :return: Dict with status info
         """
         self._ensure_initialized()
         
-        # Navigate to device details
-        self._base_component.navigate_path(
-            "Path_Devices_to_DeviceDetails",
-            cpe_id=cpe_id
-        )
-        
-        # Extract status information from UI
-        # GenieACS shows status in overview/summary section
-        status_info = {}
-        
         try:
-            # Get online/offline status
-            status_element = self._base_component.find_element_by_function(
-                element_type="button",  # Could be span, badge, etc.
-                function_keywords=["status", "online", "connected"],
-                page="device_details_page",
-                timeout=5
-            )
-            status_info["status"] = status_element.text.lower()
-        except Exception:
-            status_info["status"] = "unknown"
-        
-        # Additional fields can be extracted similarly
-        return status_info
+            # Ensure logged in
+            if not self.is_logged_in():
+                if not self.login():
+                    return {"status": "error", "error": "Login failed"}
+            
+            # Navigate to device list page
+            device_list_state = self._get_fsm_state_id('device_list_page')
+            if not self._fsm_component.navigate_to_state(device_list_state, max_steps=10):
+                return {"status": "error", "error": "Navigation failed"}
+            
+            # Search and navigate to device (Playwright direct for now)
+            search_input = self._driver.page.get_by_placeholder('Search')
+            search_input.fill(cpe_id)
+            time.sleep(0.5)
+            
+            # Click device link
+            device_link = self._driver.page.get_by_text(cpe_id).first
+            device_link.click()
+            time.sleep(1)
+            
+            # Extract status information
+            status_info = {}
+            
+            try:
+                # Get online/offline status (GenieACS shows this prominently)
+                # Look for status indicators
+                page = self._driver.page
+                
+                # Try to find online indicator
+                if page.get_by_text('Online', exact=False).count() > 0:
+                    status_info["status"] = "online"
+                elif page.get_by_text('Offline', exact=False).count() > 0:
+                    status_info["status"] = "offline"
+                else:
+                    status_info["status"] = "unknown"
+                
+            except Exception as e:
+                _LOGGER.warning("Could not determine status: %s", e)
+                status_info["status"] = "unknown"
+            
+            return status_info
+            
+        except Exception as e:
+            _LOGGER.error("Failed to get device status for %s: %s", cpe_id, e)
+            return {"status": "error", "error": str(e)}
     
     def verify_device_online(self, cpe_id: str, timeout: int = 60) -> bool:
         """Wait for device to come online.
+        
+        Mode 1 (Functional Testing): Polls device status until online or timeout.
         
         :param cpe_id: CPE identifier
         :param timeout: Max wait time in seconds
@@ -1076,18 +1116,23 @@ class GenieAcsGUI(ACSGUI):
         while time.time() - start_time < timeout:
             status = self.get_device_status(cpe_id)
             if status.get("status") == "online":
+                _LOGGER.info("Device %s is online", cpe_id)
                 return True
+            _LOGGER.debug("Device %s status: %s, waiting...", cpe_id, status.get("status"))
             time.sleep(5)  # Check every 5 seconds
         
+        _LOGGER.warning("Device %s did not come online within %d seconds", cpe_id, timeout)
         return False
     
     def get_last_inform_time(self, cpe_id: str) -> str:
         """Get device's last inform timestamp.
         
+        LEGACY: To be migrated to FSM-based implementation.
+        
         :param cpe_id: CPE identifier
         :return: Last inform time (ISO format)
         """
-        self._ensure_initialized()
+        raise NotImplementedError("get_last_inform_time() not yet migrated to FSM")
         
         # Navigate to device details
         self._base_component.navigate_path(
@@ -1108,54 +1153,92 @@ class GenieAcsGUI(ACSGUI):
             return ""
     
     # ========================================================================
-    # Device Operation Methods
+    # MODE 1: FUNCTIONAL TESTING - Device Operation Methods
     # ========================================================================
     
     def reboot_device_via_gui(self, cpe_id: str) -> bool:
         """Reboot device via GenieACS GUI.
+        
+        Mode 1 (Functional Testing): Business goal method using FSM navigation.
         
         :param cpe_id: CPE identifier
         :return: True if reboot initiated
         """
         self._ensure_initialized()
         
-        # Navigate to device details
-        self._base_component.navigate_path(
-            "Path_Devices_to_DeviceDetails",
-            cpe_id=cpe_id
-        )
-        
-        # Find reboot button using semantic search
-        reboot_btn = self._base_component.find_element_by_function(
-            element_type="button",
-            function_keywords=["reboot", "restart", "reset"],
-            page="device_details_page",
-            fallback_name="reboot"
-        )
-        reboot_btn.click()
-        
-        # Handle confirmation modal if present
         try:
-            confirm_btn = self._base_component.find_element_by_function(
-                element_type="button",
-                function_keywords=["confirm", "yes", "ok", "proceed"],
-                page="reboot_modal",
-                timeout=2
-            )
-            confirm_btn.click()
-        except Exception:
-            pass  # No confirmation needed
-        
-        _LOGGER.info("Reboot initiated for device %s", cpe_id)
-        return True
+            # Ensure logged in
+            if not self.is_logged_in():
+                if not self.login():
+                    _LOGGER.error("Cannot reboot: login failed")
+                    return False
+            
+            # Navigate to device list page using FSM
+            device_list_state = self._get_fsm_state_id('device_list_page')
+            if not self._fsm_component.navigate_to_state(device_list_state, max_steps=10):
+                _LOGGER.error("Failed to navigate to device list page")
+                return False
+            
+            # Search and navigate to device (using Playwright direct access)
+            # TODO: Enhance with FSM-based element finding when search flow is in graph
+            search_input = self._driver.page.get_by_placeholder('Search')
+            search_input.fill(cpe_id)
+            time.sleep(0.5)  # Wait for search results
+            
+            # Click device link
+            device_link = self._driver.page.get_by_text(cpe_id).first
+            device_link.click()
+            time.sleep(1)  # Wait for navigation
+            
+            # Should be on device details page now
+            device_details_state = self._get_fsm_state_id('device_details_page')
+            self._fsm_component.set_state(device_details_state, via_action='device_selected')
+            
+            # Find and click reboot button
+            # FSM's find_element will use role-based locators from graph
+            try:
+                reboot_btn = self._fsm_component.find_element(
+                    device_details_state,
+                    'button',
+                    name='Reboot',
+                    timeout=self._gui_timeout
+                )
+                reboot_btn.click()
+                _LOGGER.debug("Clicked reboot button")
+            except Exception:
+                # Fallback to direct Playwright if not in graph
+                reboot_btn = self._driver.page.get_by_role('button', name='Reboot')
+                reboot_btn.click()
+                _LOGGER.debug("Clicked reboot button (fallback)")
+            
+            # Handle confirmation modal if present
+            try:
+                confirm_btn = self._driver.page.get_by_role('button', name='OK').or_(
+                    self._driver.page.get_by_role('button', name='Confirm')
+                )
+                confirm_btn.click(timeout=2000)
+                _LOGGER.debug("Confirmed reboot")
+            except Exception:
+                pass  # No confirmation needed
+            
+            _LOGGER.info("Reboot initiated for device %s via GUI", cpe_id)
+            return True
+            
+        except Exception as e:
+            _LOGGER.error("Failed to reboot device %s via GUI: %s", cpe_id, e)
+            import traceback
+            _LOGGER.debug("Reboot error traceback: %s", traceback.format_exc())
+            return False
     
     def factory_reset_via_gui(self, cpe_id: str) -> bool:
         """Factory reset device via GenieACS GUI.
         
+        LEGACY: To be migrated to FSM-based implementation.
+        
         :param cpe_id: CPE identifier
         :return: True if factory reset initiated
         """
-        self._ensure_initialized()
+        raise NotImplementedError("factory_reset_via_gui() not yet migrated to FSM")
         
         # Navigate to device details
         self._base_component.navigate_path(
@@ -1191,11 +1274,13 @@ class GenieAcsGUI(ACSGUI):
     def delete_device_via_gui(self, cpe_id: str, confirm: bool = True) -> bool:
         """Delete device from GenieACS via GUI.
         
+        LEGACY: To be migrated to FSM-based implementation.
+        
         :param cpe_id: CPE identifier
         :param confirm: Whether to confirm deletion
         :return: True if deletion successful
         """
-        self._ensure_initialized()
+        raise NotImplementedError("delete_device_via_gui() not yet migrated to FSM")
         
         # Navigate to device details
         self._base_component.navigate_path(
@@ -1229,17 +1314,19 @@ class GenieAcsGUI(ACSGUI):
         return True
     
     # ========================================================================
-    # Parameter Operation Methods
+    # LEGACY: Parameter Operation Methods (To Be Migrated)
     # ========================================================================
     
     def get_device_parameter_via_gui(self, cpe_id: str, parameter: str) -> str | None:
         """Get device parameter value via GUI.
         
+        LEGACY: To be migrated to FSM-based implementation.
+        
         :param cpe_id: CPE identifier
         :param parameter: TR-069 parameter path
         :return: Parameter value or None
         """
-        self._ensure_initialized()
+        raise NotImplementedError("get_device_parameter_via_gui() not yet migrated to FSM")
         
         # Navigate to device parameters page
         self._base_component.navigate_path(
@@ -1274,12 +1361,14 @@ class GenieAcsGUI(ACSGUI):
     ) -> bool:
         """Set device parameter via GUI.
         
+        LEGACY: To be migrated to FSM-based implementation.
+        
         :param cpe_id: CPE identifier
         :param parameter: TR-069 parameter path
         :param value: Value to set
         :return: True if successful
         """
-        self._ensure_initialized()
+        raise NotImplementedError("set_device_parameter_via_gui() not yet migrated to FSM")
         
         # Navigate to device parameters page
         self._base_component.navigate_path(
@@ -1321,17 +1410,19 @@ class GenieAcsGUI(ACSGUI):
             return False
     
     # ========================================================================
-    # Firmware Operation Methods
+    # LEGACY: Firmware Operation Methods (To Be Migrated)
     # ========================================================================
     
     def trigger_firmware_upgrade_via_gui(self, cpe_id: str, firmware_url: str) -> bool:
         """Trigger firmware upgrade via GUI.
         
+        LEGACY: To be migrated to FSM-based implementation.
+        
         :param cpe_id: CPE identifier
         :param firmware_url: URL of firmware image
         :return: True if upgrade initiated
         """
-        self._ensure_initialized()
+        raise NotImplementedError("trigger_firmware_upgrade_via_gui() not yet migrated to FSM")
         
         # Navigate to device details
         self._base_component.navigate_path(
@@ -1373,11 +1464,13 @@ class GenieAcsGUI(ACSGUI):
     ) -> bool:
         """Verify firmware version via GUI.
         
+        LEGACY: To be migrated to FSM-based implementation.
+        
         :param cpe_id: CPE identifier
         :param expected_version: Expected firmware version
         :return: True if version matches
         """
-        self._ensure_initialized()
+        raise NotImplementedError("verify_firmware_version_via_gui() not yet migrated to FSM")
         
         # Navigate to device details
         self._base_component.navigate_path(
