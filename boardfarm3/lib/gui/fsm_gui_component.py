@@ -73,6 +73,7 @@ class FsmGuiComponent:
         self._states: Dict[str, UIState] = {}
         self._transitions: List[StateTransition] = []
         self._transition_map: Dict[str, List[StateTransition]] = {}
+        self._base_url: str = ''  # Base URL from FSM graph
         
         # State tracking
         self._current_state: Optional[str] = None
@@ -110,6 +111,11 @@ class FsmGuiComponent:
         
         with open(graph_file, 'r') as f:
             data = json.load(f)
+        
+        # Extract base URL (needed for constructing full URLs from fragments)
+        self._base_url = data.get('base_url', '')
+        if self._base_url:
+            _LOGGER.debug("Using base URL: %s", self._base_url)
         
         # Parse states (handle both 'states' and 'nodes' formats)
         states_data = data.get('states', data.get('nodes', []))
@@ -158,7 +164,18 @@ class FsmGuiComponent:
                     trans.element_name = trigger.get('name', '')
                     # Store target URL if it's a navigation action
                     if trans.action_type == 'navigate':
-                        trans.target_url = trigger.get('url', '')
+                        # Try multiple sources for URL: direct 'url', 'locators.href', or 'locators.url'
+                        url = trigger.get('url', '')
+                        if not url and 'locators' in trigger:
+                            locators = trigger['locators']
+                            url = locators.get('href', locators.get('url', ''))
+                        
+                        # If URL is a fragment (starts with # or #!), prepend base_url
+                        if url and url.startswith('#') and self._base_url:
+                            # Remove leading '/' from base_url if present to avoid double slashes
+                            base = self._base_url.rstrip('/')
+                            url = base + '/' + url
+                        trans.target_url = url
                 
                 self._transitions.append(trans)
                 

@@ -1,0 +1,82 @@
+{
+  "base_url": "http://127.0.0.1:3000",
+  "discovery_method": "breadth_first_search_async",
+  "levels_explored": 1,
+  "graph": {
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+      {
+        "node_type": "Page",
+        "title": "Login - GenieACS",
+        "page_type": "login",
+        "friendly_name": "login_page",
+        "id": "http://127.0.0.1:3000/#!/login"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Login",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "login_button",
+        "id": "elem_button_1"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "username",
+        "visibility_observed": "visible",
+        "friendly_name": "username_input",
+        "id": "elem_input_2"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "password",
+        "visibility_observed": "visible",
+        "friendly_name": "password_input",
+        "id": "elem_input_3"
+      }
+    ],
+    "edges": [
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_1",
+        "target": "http://127.0.0.1:3000/#!/login"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_2",
+        "target": "http://127.0.0.1:3000/#!/login"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_3",
+        "target": "http://127.0.0.1:3000/#!/login"
+      }
+    ]
+  },
+  "statistics": {
+    "total_nodes": 4,
+    "total_edges": 3,
+    "page_count": 1,
+    "modal_count": 0,
+    "form_count": 0,
+    "element_count": 3,
+    "avg_elements_per_page": 3.0,
+    "orphaned_elements": 0,
+    "dead_end_pages": 1,
+    "modals_without_triggers": 0,
+    "forms_without_submits": 0,
+    "is_weakly_connected": true
+  }
+}

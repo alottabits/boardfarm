@@ -1,0 +1,3506 @@
+{
+  "base_url": "http://127.0.0.1:3000",
+  "discovery_method": "breadth_first_search_async",
+  "levels_explored": 2,
+  "graph": {
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+      {
+        "node_type": "Page",
+        "title": "Login - GenieACS",
+        "page_type": "login",
+        "friendly_name": "login_page",
+        "id": "http://127.0.0.1:3000/#!/login"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Login",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "login_button",
+        "id": "elem_button_1"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "username",
+        "visibility_observed": "visible",
+        "friendly_name": "username_input",
+        "id": "elem_input_2"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "password",
+        "visibility_observed": "visible",
+        "friendly_name": "password_input",
+        "id": "elem_input_3"
+      },
+      {
+        "node_type": "Page",
+        "title": "Overview - GenieACS",
+        "page_type": "home",
+        "friendly_name": "home_page",
+        "id": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "Log out",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "log_out_button",
+        "id": "elem_button_4"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Overview",
+        "href": "http://127.0.0.1:3000/#!/overview",
+        "visibility_observed": "visible",
+        "friendly_name": "overview_link",
+        "id": "elem_link_5"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Devices",
+        "href": "http://127.0.0.1:3000/#!/devices",
+        "visibility_observed": "visible",
+        "friendly_name": "devices_link",
+        "id": "elem_link_6"
+      },
+      {
+        "node_type": "Page",
+        "title": "Devices - GenieACS",
+        "page_type": "device_list",
+        "friendly_name": "device_list_page",
+        "id": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Faults",
+        "href": "http://127.0.0.1:3000/#!/faults",
+        "visibility_observed": "visible",
+        "friendly_name": "faults_link",
+        "id": "elem_link_7"
+      },
+      {
+        "node_type": "Page",
+        "title": "Faults - GenieACS",
+        "page_type": "faults",
+        "friendly_name": "faults_page",
+        "id": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Admin",
+        "href": "http://127.0.0.1:3000/#!/admin",
+        "visibility_observed": "visible",
+        "friendly_name": "admin_link",
+        "id": "elem_link_8"
+      },
+      {
+        "node_type": "Page",
+        "title": "Presets - GenieACS",
+        "page_type": "admin",
+        "friendly_name": "admin_page",
+        "id": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "10.00%",
+        "href": "http://127.0.0.1:3000/#!/devices/",
+        "visibility_observed": "visible",
+        "friendly_name": "1000_link",
+        "id": "elem_link_9"
+      },
+      {
+        "node_type": "Page",
+        "title": "Devices - GenieACS",
+        "page_type": "device_details",
+        "friendly_name": "device_details_page",
+        "id": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "90.00%",
+        "href": "http://127.0.0.1:3000/#!/devices/",
+        "visibility_observed": "visible",
+        "friendly_name": "9000_link",
+        "id": "elem_link_10"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "0",
+        "href": "http://127.0.0.1:3000/#!/devices/",
+        "visibility_observed": "visible",
+        "friendly_name": "0_link",
+        "id": "elem_link_11"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "1",
+        "href": "http://127.0.0.1:3000/#!/devices/",
+        "visibility_observed": "visible",
+        "friendly_name": "1_link",
+        "id": "elem_link_12"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "9",
+        "href": "http://127.0.0.1:3000/#!/devices/",
+        "visibility_observed": "visible",
+        "friendly_name": "9_link",
+        "id": "elem_link_13"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "Log out",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "log_out_button",
+        "id": "elem_button_14"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_15"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_16"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_17"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_18"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_19"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_20"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "More",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "more_button",
+        "id": "elem_button_21"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Reboot",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "reboot_button",
+        "id": "elem_button_22"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".critical",
+        "text": "Reset",
+        "button_id": "",
+        "button_class": "critical",
+        "visibility_observed": "visible",
+        "friendly_name": "reset_button",
+        "id": "elem_button_23"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".critical",
+        "text": "Push file",
+        "button_id": "",
+        "button_class": "critical",
+        "visibility_observed": "visible",
+        "friendly_name": "push_file_button",
+        "id": "elem_button_24"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Delete",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "delete_button",
+        "id": "elem_button_25"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Tag",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "tag_button",
+        "id": "elem_button_26"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Untag",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "untag_button",
+        "id": "elem_button_27"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_28"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_29"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_30"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_31"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_32"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_33"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_34"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_35"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_36"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_37"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_38"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_39"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Overview",
+        "href": "http://127.0.0.1:3000/#!/overview",
+        "visibility_observed": "visible",
+        "friendly_name": "overview_link",
+        "id": "elem_link_40"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Devices",
+        "href": "http://127.0.0.1:3000/#!/devices",
+        "visibility_observed": "visible",
+        "friendly_name": "devices_link",
+        "id": "elem_link_41"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Faults",
+        "href": "http://127.0.0.1:3000/#!/faults",
+        "visibility_observed": "visible",
+        "friendly_name": "faults_link",
+        "id": "elem_link_42"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Admin",
+        "href": "http://127.0.0.1:3000/#!/admin",
+        "visibility_observed": "visible",
+        "friendly_name": "admin_link",
+        "id": "elem_link_43"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN16B6425FE2F7",
+        "href": "http://127.0.0.1:3000/#!/devices/16B642-SN16B6425FE2F7",
+        "visibility_observed": "visible",
+        "friendly_name": "sn16b6425fe2f7_link",
+        "id": "elem_link_44"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/devices/16B642-SN16B6425FE2F7"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/16B642-SN16B6425FE2F7",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_45"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN4232395B8BC0",
+        "href": "http://127.0.0.1:3000/#!/devices/423239-SN4232395B8BC0",
+        "visibility_observed": "visible",
+        "friendly_name": "sn4232395b8bc0_link",
+        "id": "elem_link_46"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/devices/423239-SN4232395B8BC0"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/423239-SN4232395B8BC0",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_47"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN4AF1B6EBA367",
+        "href": "http://127.0.0.1:3000/#!/devices/4AF1B6-SN4AF1B6EBA367",
+        "visibility_observed": "visible",
+        "friendly_name": "sn4af1b6eba367_link",
+        "id": "elem_link_48"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/devices/4AF1B6-SN4AF1B6EBA367"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/4AF1B6-SN4AF1B6EBA367",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_49"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN6E987540799F",
+        "href": "http://127.0.0.1:3000/#!/devices/6E9875-SN6E987540799F",
+        "visibility_observed": "visible",
+        "friendly_name": "sn6e987540799f_link",
+        "id": "elem_link_50"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/devices/6E9875-SN6E987540799F"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/6E9875-SN6E987540799F",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_51"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN7AB8BBF666EB",
+        "href": "http://127.0.0.1:3000/#!/devices/7AB8BB-SN7AB8BBF666EB",
+        "visibility_observed": "visible",
+        "friendly_name": "sn7ab8bbf666eb_link",
+        "id": "elem_link_52"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/devices/7AB8BB-SN7AB8BBF666EB"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/7AB8BB-SN7AB8BBF666EB",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_53"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN7EC3CC42269D",
+        "href": "http://127.0.0.1:3000/#!/devices/7EC3CC-SN7EC3CC42269D",
+        "visibility_observed": "visible",
+        "friendly_name": "sn7ec3cc42269d_link",
+        "id": "elem_link_54"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/devices/7EC3CC-SN7EC3CC42269D"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/7EC3CC-SN7EC3CC42269D",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_55"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN8E3B9B3FCBD4",
+        "href": "http://127.0.0.1:3000/#!/devices/8E3B9B-SN8E3B9B3FCBD4",
+        "visibility_observed": "visible",
+        "friendly_name": "sn8e3b9b3fcbd4_link",
+        "id": "elem_link_56"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/devices/8E3B9B-SN8E3B9B3FCBD4"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/8E3B9B-SN8E3B9B3FCBD4",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_57"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SNBA58307ACB9A",
+        "href": "http://127.0.0.1:3000/#!/devices/BA5830-SNBA58307ACB9A",
+        "visibility_observed": "visible",
+        "friendly_name": "snba58307acb9a_link",
+        "id": "elem_link_58"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/devices/BA5830-SNBA58307ACB9A"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/BA5830-SNBA58307ACB9A",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_59"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SNCE80B324E04D",
+        "href": "http://127.0.0.1:3000/#!/devices/CE80B3-SNCE80B324E04D",
+        "visibility_observed": "visible",
+        "friendly_name": "snce80b324e04d_link",
+        "id": "elem_link_60"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/devices/CE80B3-SNCE80B324E04D"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/CE80B3-SNCE80B324E04D",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_61"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SNF2206B17FFD7",
+        "href": "http://127.0.0.1:3000/#!/devices/F2206B-SNF2206B17FFD7",
+        "visibility_observed": "visible",
+        "friendly_name": "snf2206b17ffd7_link",
+        "id": "elem_link_62"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/devices/F2206B-SNF2206B17FFD7"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/F2206B-SNF2206B17FFD7",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_63"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": ".download-csv",
+        "text": "Download",
+        "href": "http://127.0.0.1:3000/api/devices.csv",
+        "visibility_observed": "visible",
+        "friendly_name": "download_link",
+        "id": "elem_link_64"
+      },
+      {
+        "id": "http://127.0.0.1:3000/api/devices.csv"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "Log out",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "log_out_button",
+        "id": "elem_button_65"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_66"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_67"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_68"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_69"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_70"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_71"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "More",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "more_button",
+        "id": "elem_button_72"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Delete",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "delete_button",
+        "id": "elem_button_73"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_74"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_75"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Overview",
+        "href": "http://127.0.0.1:3000/#!/overview",
+        "visibility_observed": "visible",
+        "friendly_name": "overview_link",
+        "id": "elem_link_76"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Devices",
+        "href": "http://127.0.0.1:3000/#!/devices",
+        "visibility_observed": "visible",
+        "friendly_name": "devices_link",
+        "id": "elem_link_77"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Faults",
+        "href": "http://127.0.0.1:3000/#!/faults",
+        "visibility_observed": "visible",
+        "friendly_name": "faults_link",
+        "id": "elem_link_78"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Admin",
+        "href": "http://127.0.0.1:3000/#!/admin",
+        "visibility_observed": "visible",
+        "friendly_name": "admin_link",
+        "id": "elem_link_79"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": ".download-csv",
+        "text": "Download",
+        "href": "http://127.0.0.1:3000/api/faults.csv",
+        "visibility_observed": "visible",
+        "friendly_name": "download_link",
+        "id": "elem_link_80"
+      },
+      {
+        "id": "http://127.0.0.1:3000/api/faults.csv"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "Log out",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "log_out_button",
+        "id": "elem_button_81"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_82"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_83"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_84"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_85"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "More",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "more_button",
+        "id": "elem_button_86"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "New",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "new_button",
+        "id": "elem_button_87"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Delete",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "delete_button",
+        "id": "elem_button_88"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_89"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_90"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_91"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_92"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_93"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Overview",
+        "href": "http://127.0.0.1:3000/#!/overview",
+        "visibility_observed": "visible",
+        "friendly_name": "overview_link",
+        "id": "elem_link_94"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Devices",
+        "href": "http://127.0.0.1:3000/#!/devices",
+        "visibility_observed": "visible",
+        "friendly_name": "devices_link",
+        "id": "elem_link_95"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Faults",
+        "href": "http://127.0.0.1:3000/#!/faults",
+        "visibility_observed": "visible",
+        "friendly_name": "faults_link",
+        "id": "elem_link_96"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Admin",
+        "href": "http://127.0.0.1:3000/#!/admin",
+        "visibility_observed": "visible",
+        "friendly_name": "admin_link",
+        "id": "elem_link_97"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Presets",
+        "href": "http://127.0.0.1:3000/#!/admin/presets",
+        "visibility_observed": "visible",
+        "friendly_name": "presets_link",
+        "id": "elem_link_98"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/admin/presets"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Provisions",
+        "href": "http://127.0.0.1:3000/#!/admin/provisions",
+        "visibility_observed": "visible",
+        "friendly_name": "provisions_link",
+        "id": "elem_link_99"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/admin/provisions"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Virtual Parameters",
+        "href": "http://127.0.0.1:3000/#!/admin/virtualParameters",
+        "visibility_observed": "visible",
+        "friendly_name": "virtual_parameters_link",
+        "id": "elem_link_100"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/admin/virtualParameters"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Files",
+        "href": "http://127.0.0.1:3000/#!/admin/files",
+        "visibility_observed": "visible",
+        "friendly_name": "files_link",
+        "id": "elem_link_101"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/admin/files"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Config",
+        "href": "http://127.0.0.1:3000/#!/admin/config",
+        "visibility_observed": "visible",
+        "friendly_name": "config_link",
+        "id": "elem_link_102"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/admin/config"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Permissions",
+        "href": "http://127.0.0.1:3000/#!/admin/permissions",
+        "visibility_observed": "visible",
+        "friendly_name": "permissions_link",
+        "id": "elem_link_103"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/admin/permissions"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Users",
+        "href": "http://127.0.0.1:3000/#!/admin/users",
+        "visibility_observed": "visible",
+        "friendly_name": "users_link",
+        "id": "elem_link_104"
+      },
+      {
+        "id": "http://127.0.0.1:3000/#!/admin/users"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "bootstrap",
+        "href": "http://127.0.0.1:3000/#!/admin/provisions",
+        "visibility_observed": "visible",
+        "friendly_name": "bootstrap_link",
+        "id": "elem_link_105"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "default",
+        "href": "http://127.0.0.1:3000/#!/admin/provisions",
+        "visibility_observed": "visible",
+        "friendly_name": "default_link",
+        "id": "elem_link_106"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "inform",
+        "href": "http://127.0.0.1:3000/#!/admin/provisions",
+        "visibility_observed": "visible",
+        "friendly_name": "inform_link",
+        "id": "elem_link_107"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": ".download-csv",
+        "text": "Download",
+        "href": "http://127.0.0.1:3000/api/presets.csv",
+        "visibility_observed": "visible",
+        "friendly_name": "download_link",
+        "id": "elem_link_108"
+      },
+      {
+        "id": "http://127.0.0.1:3000/api/presets.csv"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "Log out",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "log_out_button",
+        "id": "elem_button_109"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_110"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_111"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_112"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_113"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_114"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "button_unknown",
+        "id": "elem_button_115"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": "button",
+        "text": "More",
+        "button_id": "",
+        "button_class": "",
+        "visibility_observed": "visible",
+        "friendly_name": "more_button",
+        "id": "elem_button_116"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Reboot",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "reboot_button",
+        "id": "elem_button_117"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".critical",
+        "text": "Reset",
+        "button_id": "",
+        "button_class": "critical",
+        "visibility_observed": "visible",
+        "friendly_name": "reset_button",
+        "id": "elem_button_118"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".critical",
+        "text": "Push file",
+        "button_id": "",
+        "button_class": "critical",
+        "visibility_observed": "visible",
+        "friendly_name": "push_file_button",
+        "id": "elem_button_119"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Delete",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "delete_button",
+        "id": "elem_button_120"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Tag",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "tag_button",
+        "id": "elem_button_121"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "button",
+        "locator_type": "css",
+        "locator_value": ".primary",
+        "text": "Untag",
+        "button_id": "",
+        "button_class": "primary",
+        "visibility_observed": "visible",
+        "friendly_name": "untag_button",
+        "id": "elem_button_122"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_123"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_124"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_125"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_126"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_127"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_128"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_129"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_130"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_131"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_132"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_133"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "input",
+        "locator_type": "css",
+        "locator_value": "input",
+        "name": "",
+        "visibility_observed": "visible",
+        "friendly_name": "input_unknown",
+        "id": "elem_input_134"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Overview",
+        "href": "http://127.0.0.1:3000/#!/overview",
+        "visibility_observed": "visible",
+        "friendly_name": "overview_link",
+        "id": "elem_link_135"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Devices",
+        "href": "http://127.0.0.1:3000/#!/devices",
+        "visibility_observed": "visible",
+        "friendly_name": "devices_link",
+        "id": "elem_link_136"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Faults",
+        "href": "http://127.0.0.1:3000/#!/faults",
+        "visibility_observed": "visible",
+        "friendly_name": "faults_link",
+        "id": "elem_link_137"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Admin",
+        "href": "http://127.0.0.1:3000/#!/admin",
+        "visibility_observed": "visible",
+        "friendly_name": "admin_link",
+        "id": "elem_link_138"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN16B6425FE2F7",
+        "href": "http://127.0.0.1:3000/#!/devices/16B642-SN16B6425FE2F7",
+        "visibility_observed": "visible",
+        "friendly_name": "sn16b6425fe2f7_link",
+        "id": "elem_link_139"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/16B642-SN16B6425FE2F7",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_140"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN4232395B8BC0",
+        "href": "http://127.0.0.1:3000/#!/devices/423239-SN4232395B8BC0",
+        "visibility_observed": "visible",
+        "friendly_name": "sn4232395b8bc0_link",
+        "id": "elem_link_141"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/423239-SN4232395B8BC0",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_142"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN4AF1B6EBA367",
+        "href": "http://127.0.0.1:3000/#!/devices/4AF1B6-SN4AF1B6EBA367",
+        "visibility_observed": "visible",
+        "friendly_name": "sn4af1b6eba367_link",
+        "id": "elem_link_143"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/4AF1B6-SN4AF1B6EBA367",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_144"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN6E987540799F",
+        "href": "http://127.0.0.1:3000/#!/devices/6E9875-SN6E987540799F",
+        "visibility_observed": "visible",
+        "friendly_name": "sn6e987540799f_link",
+        "id": "elem_link_145"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/6E9875-SN6E987540799F",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_146"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN7AB8BBF666EB",
+        "href": "http://127.0.0.1:3000/#!/devices/7AB8BB-SN7AB8BBF666EB",
+        "visibility_observed": "visible",
+        "friendly_name": "sn7ab8bbf666eb_link",
+        "id": "elem_link_147"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/7AB8BB-SN7AB8BBF666EB",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_148"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN7EC3CC42269D",
+        "href": "http://127.0.0.1:3000/#!/devices/7EC3CC-SN7EC3CC42269D",
+        "visibility_observed": "visible",
+        "friendly_name": "sn7ec3cc42269d_link",
+        "id": "elem_link_149"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/7EC3CC-SN7EC3CC42269D",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_150"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SN8E3B9B3FCBD4",
+        "href": "http://127.0.0.1:3000/#!/devices/8E3B9B-SN8E3B9B3FCBD4",
+        "visibility_observed": "visible",
+        "friendly_name": "sn8e3b9b3fcbd4_link",
+        "id": "elem_link_151"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/8E3B9B-SN8E3B9B3FCBD4",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_152"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SNBA58307ACB9A",
+        "href": "http://127.0.0.1:3000/#!/devices/BA5830-SNBA58307ACB9A",
+        "visibility_observed": "visible",
+        "friendly_name": "snba58307acb9a_link",
+        "id": "elem_link_153"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/BA5830-SNBA58307ACB9A",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_154"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SNCE80B324E04D",
+        "href": "http://127.0.0.1:3000/#!/devices/CE80B3-SNCE80B324E04D",
+        "visibility_observed": "visible",
+        "friendly_name": "snce80b324e04d_link",
+        "id": "elem_link_155"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/CE80B3-SNCE80B324E04D",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_156"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "SNF2206B17FFD7",
+        "href": "http://127.0.0.1:3000/#!/devices/F2206B-SNF2206B17FFD7",
+        "visibility_observed": "visible",
+        "friendly_name": "snf2206b17ffd7_link",
+        "id": "elem_link_157"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": "a",
+        "text": "Show",
+        "href": "http://127.0.0.1:3000/#!/devices/F2206B-SNF2206B17FFD7",
+        "visibility_observed": "visible",
+        "friendly_name": "show_link",
+        "id": "elem_link_158"
+      },
+      {
+        "node_type": "Element",
+        "element_type": "link",
+        "locator_type": "css",
+        "locator_value": ".download-csv",
+        "text": "Download",
+        "href": "http://127.0.0.1:3000/api/devices.csv",
+        "visibility_observed": "visible",
+        "friendly_name": "download_link",
+        "id": "elem_link_159"
+      }
+    ],
+    "edges": [
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_1",
+        "target": "http://127.0.0.1:3000/#!/login"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_2",
+        "target": "http://127.0.0.1:3000/#!/login"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_3",
+        "target": "http://127.0.0.1:3000/#!/login"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_5",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/overview",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_6",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/overview",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_7",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/overview",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_8",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/overview",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_13",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/overview",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_4",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_5",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_6",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_6",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_40",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_41",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_42",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_43",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_45",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/devices/16B642-SN16B6425FE2F7"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_47",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/devices/423239-SN4232395B8BC0"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_49",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/devices/4AF1B6-SN4AF1B6EBA367"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_51",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/devices/6E9875-SN6E987540799F"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_53",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/devices/7AB8BB-SN7AB8BBF666EB"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_55",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/devices/7EC3CC-SN7EC3CC42269D"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_57",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/devices/8E3B9B-SN8E3B9B3FCBD4"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_59",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/devices/BA5830-SNBA58307ACB9A"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_61",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/devices/CE80B3-SNCE80B324E04D"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_63",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/#!/devices/F2206B-SNF2206B17FFD7"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_64",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices",
+        "target": "http://127.0.0.1:3000/api/devices.csv"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_7",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_7",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_76",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/faults",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_77",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/faults",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_78",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/faults",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_79",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/faults",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_80",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/faults",
+        "target": "http://127.0.0.1:3000/api/faults.csv"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_8",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_8",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_94",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_95",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_96",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_97",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_98",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/#!/admin/presets"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_107",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/#!/admin/provisions"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_100",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/#!/admin/virtualParameters"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_101",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/#!/admin/files"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_102",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/#!/admin/config"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_103",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/#!/admin/permissions"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_104",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/#!/admin/users"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_108",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/admin",
+        "target": "http://127.0.0.1:3000/api/presets.csv"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_9",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_9",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_135",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_136",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_137",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_138",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_140",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/devices/16B642-SN16B6425FE2F7"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_142",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/devices/423239-SN4232395B8BC0"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_144",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/devices/4AF1B6-SN4AF1B6EBA367"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_146",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/devices/6E9875-SN6E987540799F"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_148",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/devices/7AB8BB-SN7AB8BBF666EB"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_150",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/devices/7EC3CC-SN7EC3CC42269D"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_152",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/devices/8E3B9B-SN8E3B9B3FCBD4"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_154",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/devices/BA5830-SNBA58307ACB9A"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_156",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/devices/CE80B3-SNCE80B324E04D"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_158",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/#!/devices/F2206B-SNF2206B17FFD7"
+      },
+      {
+        "edge_type": "MAPS_TO",
+        "via_element": "elem_link_159",
+        "action": "click",
+        "source": "http://127.0.0.1:3000/#!/devices/",
+        "target": "http://127.0.0.1:3000/api/devices.csv"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_10",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_10",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_11",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_11",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_12",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_12",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_13",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_13",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_14",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_15",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_16",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_17",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_18",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_19",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_20",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_21",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_22",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_23",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_24",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_25",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_26",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_27",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_28",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_29",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_30",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_31",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_32",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_33",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_34",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_35",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_36",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_37",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_38",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_39",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_40",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_40",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_41",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_42",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_42",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_43",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_43",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_44",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_44",
+        "target": "http://127.0.0.1:3000/#!/devices/16B642-SN16B6425FE2F7"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_45",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_45",
+        "target": "http://127.0.0.1:3000/#!/devices/16B642-SN16B6425FE2F7"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_46",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_46",
+        "target": "http://127.0.0.1:3000/#!/devices/423239-SN4232395B8BC0"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_47",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_47",
+        "target": "http://127.0.0.1:3000/#!/devices/423239-SN4232395B8BC0"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_48",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_48",
+        "target": "http://127.0.0.1:3000/#!/devices/4AF1B6-SN4AF1B6EBA367"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_49",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_49",
+        "target": "http://127.0.0.1:3000/#!/devices/4AF1B6-SN4AF1B6EBA367"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_50",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_50",
+        "target": "http://127.0.0.1:3000/#!/devices/6E9875-SN6E987540799F"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_51",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_51",
+        "target": "http://127.0.0.1:3000/#!/devices/6E9875-SN6E987540799F"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_52",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_52",
+        "target": "http://127.0.0.1:3000/#!/devices/7AB8BB-SN7AB8BBF666EB"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_53",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_53",
+        "target": "http://127.0.0.1:3000/#!/devices/7AB8BB-SN7AB8BBF666EB"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_54",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_54",
+        "target": "http://127.0.0.1:3000/#!/devices/7EC3CC-SN7EC3CC42269D"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_55",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_55",
+        "target": "http://127.0.0.1:3000/#!/devices/7EC3CC-SN7EC3CC42269D"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_56",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_56",
+        "target": "http://127.0.0.1:3000/#!/devices/8E3B9B-SN8E3B9B3FCBD4"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_57",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_57",
+        "target": "http://127.0.0.1:3000/#!/devices/8E3B9B-SN8E3B9B3FCBD4"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_58",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_58",
+        "target": "http://127.0.0.1:3000/#!/devices/BA5830-SNBA58307ACB9A"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_59",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_59",
+        "target": "http://127.0.0.1:3000/#!/devices/BA5830-SNBA58307ACB9A"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_60",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_60",
+        "target": "http://127.0.0.1:3000/#!/devices/CE80B3-SNCE80B324E04D"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_61",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_61",
+        "target": "http://127.0.0.1:3000/#!/devices/CE80B3-SNCE80B324E04D"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_62",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_62",
+        "target": "http://127.0.0.1:3000/#!/devices/F2206B-SNF2206B17FFD7"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_63",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_63",
+        "target": "http://127.0.0.1:3000/#!/devices/F2206B-SNF2206B17FFD7"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_64",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_64",
+        "target": "http://127.0.0.1:3000/api/devices.csv"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_65",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_66",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_67",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_68",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_69",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_70",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_71",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_72",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_73",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_74",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_75",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_76",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_76",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_77",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_77",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_78",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_79",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_79",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_80",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_80",
+        "target": "http://127.0.0.1:3000/api/faults.csv"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_81",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_82",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_83",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_84",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_85",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_86",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_87",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_88",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_89",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_90",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_91",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_92",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_93",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_94",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_94",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_95",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_95",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_96",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_96",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_97",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_98",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_98",
+        "target": "http://127.0.0.1:3000/#!/admin/presets"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_99",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_99",
+        "target": "http://127.0.0.1:3000/#!/admin/provisions"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_100",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_100",
+        "target": "http://127.0.0.1:3000/#!/admin/virtualParameters"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_101",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_101",
+        "target": "http://127.0.0.1:3000/#!/admin/files"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_102",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_102",
+        "target": "http://127.0.0.1:3000/#!/admin/config"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_103",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_103",
+        "target": "http://127.0.0.1:3000/#!/admin/permissions"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_104",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_104",
+        "target": "http://127.0.0.1:3000/#!/admin/users"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_105",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_105",
+        "target": "http://127.0.0.1:3000/#!/admin/provisions"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_106",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_106",
+        "target": "http://127.0.0.1:3000/#!/admin/provisions"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_107",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_107",
+        "target": "http://127.0.0.1:3000/#!/admin/provisions"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_108",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_108",
+        "target": "http://127.0.0.1:3000/api/presets.csv"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_109",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_110",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_111",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_112",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_113",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_114",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_115",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_116",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_117",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_118",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_119",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_120",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_121",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_button_122",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_123",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_124",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_125",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_126",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_127",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_128",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_129",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_130",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_131",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_132",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_133",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_input_134",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_135",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_135",
+        "target": "http://127.0.0.1:3000/#!/overview"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_136",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_136",
+        "target": "http://127.0.0.1:3000/#!/devices"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_137",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_137",
+        "target": "http://127.0.0.1:3000/#!/faults"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_138",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_138",
+        "target": "http://127.0.0.1:3000/#!/admin"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_139",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_139",
+        "target": "http://127.0.0.1:3000/#!/devices/16B642-SN16B6425FE2F7"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_140",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_140",
+        "target": "http://127.0.0.1:3000/#!/devices/16B642-SN16B6425FE2F7"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_141",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_141",
+        "target": "http://127.0.0.1:3000/#!/devices/423239-SN4232395B8BC0"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_142",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_142",
+        "target": "http://127.0.0.1:3000/#!/devices/423239-SN4232395B8BC0"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_143",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_143",
+        "target": "http://127.0.0.1:3000/#!/devices/4AF1B6-SN4AF1B6EBA367"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_144",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_144",
+        "target": "http://127.0.0.1:3000/#!/devices/4AF1B6-SN4AF1B6EBA367"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_145",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_145",
+        "target": "http://127.0.0.1:3000/#!/devices/6E9875-SN6E987540799F"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_146",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_146",
+        "target": "http://127.0.0.1:3000/#!/devices/6E9875-SN6E987540799F"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_147",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_147",
+        "target": "http://127.0.0.1:3000/#!/devices/7AB8BB-SN7AB8BBF666EB"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_148",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_148",
+        "target": "http://127.0.0.1:3000/#!/devices/7AB8BB-SN7AB8BBF666EB"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_149",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_149",
+        "target": "http://127.0.0.1:3000/#!/devices/7EC3CC-SN7EC3CC42269D"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_150",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_150",
+        "target": "http://127.0.0.1:3000/#!/devices/7EC3CC-SN7EC3CC42269D"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_151",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_151",
+        "target": "http://127.0.0.1:3000/#!/devices/8E3B9B-SN8E3B9B3FCBD4"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_152",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_152",
+        "target": "http://127.0.0.1:3000/#!/devices/8E3B9B-SN8E3B9B3FCBD4"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_153",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_153",
+        "target": "http://127.0.0.1:3000/#!/devices/BA5830-SNBA58307ACB9A"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_154",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_154",
+        "target": "http://127.0.0.1:3000/#!/devices/BA5830-SNBA58307ACB9A"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_155",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_155",
+        "target": "http://127.0.0.1:3000/#!/devices/CE80B3-SNCE80B324E04D"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_156",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_156",
+        "target": "http://127.0.0.1:3000/#!/devices/CE80B3-SNCE80B324E04D"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_157",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_157",
+        "target": "http://127.0.0.1:3000/#!/devices/F2206B-SNF2206B17FFD7"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_158",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_158",
+        "target": "http://127.0.0.1:3000/#!/devices/F2206B-SNF2206B17FFD7"
+      },
+      {
+        "edge_type": "ON_PAGE",
+        "source": "elem_link_159",
+        "target": "http://127.0.0.1:3000/#!/devices/"
+      },
+      {
+        "edge_type": "NAVIGATES_TO",
+        "action": "click",
+        "source": "elem_link_159",
+        "target": "http://127.0.0.1:3000/api/devices.csv"
+      }
+    ]
+  },
+  "statistics": {
+    "total_nodes": 185,
+    "total_edges": 286,
+    "page_count": 6,
+    "modal_count": 0,
+    "form_count": 0,
+    "element_count": 159,
+    "avg_elements_per_page": 26.5,
+    "orphaned_elements": 4,
+    "dead_end_pages": 1,
+    "modals_without_triggers": 0,
+    "forms_without_submits": 0,
+    "is_weakly_connected": false
+  }
+}

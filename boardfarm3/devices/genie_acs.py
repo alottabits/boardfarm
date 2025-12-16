@@ -200,15 +200,28 @@ class GenieAcsNBI(ACSNBI):
         timeout: int | None = None,
         cpe_id: str | None = None,
     ) -> GpvResponse:
-        """Send GetParamaterValues command via ACS server."""
+        """Send GetParamaterValues command via ACS server.
+        
+        Note: This method triggers a connection request to wake up the CPE,
+        then queries GenieACS for the parameter value. A short delay is added
+        to allow the CPE time to respond to the connection request before querying.
+        """
         cpe_id = cpe_id if cpe_id else self._cpeid
         quoted_id = quote('{"_id":"' + cpe_id + '"}', safe="")
+        
+        # Step 1: POST task with connection request to wake up CPE
         self._request_post(
             endpoint="/devices/" + quote(cpe_id) + "/tasks",
             data=self._build_input_structs_gpv(param),
             conn_request=True,
             timeout=timeout,
         )
+        
+        # Step 2: Wait briefly for CPE to respond to connection request
+        # This prevents race condition where GET happens before CPE connects
+        time.sleep(3.0)  # Give CPE time to connect and provide fresh data
+        
+        # Step 3: Query GenieACS for the parameter value
         response_data = self._request_get(
             "/devices"  # noqa: ISC003
             + "?query="
@@ -1180,15 +1193,48 @@ class GenieAcsGUI(ACSGUI):
                 return False
             
             # Search and navigate to device (using Playwright direct access)
-            # TODO: Enhance with FSM-based element finding when search flow is in graph
-            search_input = self._driver.page.get_by_placeholder('Search')
-            search_input.fill(cpe_id)
-            time.sleep(0.5)  # Wait for search results
+            # GenieACS uses a dropdown filter system:
+            # 1. Click the search textbox to show dropdown
+            # 2. Select "Serial number:" from dropdown
+            # 3. Enter the serial number value
             
-            # Click device link
-            device_link = self._driver.page.get_by_text(cpe_id).first
-            device_link.click()
-            time.sleep(1)  # Wait for navigation
+            # Click textbox to activate dropdown
+            search_input = self._driver.page.get_by_role('textbox')
+            search_input.click()
+            _LOGGER.debug("Clicked search field to activate dropdown")
+            time.sleep(0.3)  # Wait for dropdown to appear
+            
+            # Select "Serial number:" from the dropdown menu
+            # The dropdown options typically appear as list items or buttons
+            try:
+                serial_number_option = self._driver.page.get_by_text('Serial number:', exact=False)
+                serial_number_option.click()
+                _LOGGER.debug("Selected 'Serial number:' from dropdown")
+                time.sleep(0.3)  # Wait for field to be ready
+            except Exception as e:
+                _LOGGER.warning("Could not select dropdown option: %s, trying direct input", e)
+            
+            # Now fill in the serial number value
+            # Extract just the serial number part (SN665A3BA8824A) from full ID
+            # GenieACS stores SerialNumber in format like "SN665A3BA8824A"
+            serial_number = cpe_id.split('-')[-1]  # Get last part after dash
+            search_input.fill(serial_number)
+            _LOGGER.debug("Entered serial number: %s", serial_number)
+            time.sleep(1.5)  # Wait for search results to filter
+            
+            # Click device link - in GenieACS, device IDs are links in the table
+            # Try both full ID and serial number formats
+            try:
+                device_link = self._driver.page.get_by_role('link', name=cpe_id)
+                device_link.click()
+                _LOGGER.debug("Clicked device link: %s", cpe_id)
+            except Exception:
+                # Try with just serial number if full ID doesn't work
+                device_link = self._driver.page.get_by_role('link', name=serial_number)
+                device_link.click()
+                _LOGGER.debug("Clicked device link with serial: %s", serial_number)
+            
+            time.sleep(1.5)  # Wait for device details page to load
             
             # Should be on device details page now
             device_details_state = self._get_fsm_state_id('device_details_page')
@@ -1211,15 +1257,28 @@ class GenieAcsGUI(ACSGUI):
                 reboot_btn.click()
                 _LOGGER.debug("Clicked reboot button (fallback)")
             
-            # Handle confirmation modal if present
+            # Wait for overlay/modal to appear showing reboot task added
+            time.sleep(1.0)
+            
+            # GenieACS shows an overlay with a "Commit" button
+            # The task is queued but not executed until "Commit" is clicked
+            # NOTE: Commit button triggers connection request to CPE automatically
             try:
-                confirm_btn = self._driver.page.get_by_role('button', name='OK').or_(
-                    self._driver.page.get_by_role('button', name='Confirm')
-                )
-                confirm_btn.click(timeout=2000)
-                _LOGGER.debug("Confirmed reboot")
-            except Exception:
-                pass  # No confirmation needed
+                commit_btn = self._driver.page.get_by_role('button', name='Commit')
+                commit_btn.click(timeout=5000)
+                _LOGGER.info("Clicked 'Commit' button - triggers connection request and task execution")
+                time.sleep(2.0)  # Wait for commit to process and connection request to trigger
+            except Exception as e:
+                _LOGGER.warning("Could not find 'Commit' button, trying alternatives: %s", e)
+                # Try other common confirmation buttons
+                try:
+                    confirm_btn = self._driver.page.get_by_role('button', name='OK').or_(
+                        self._driver.page.get_by_role('button', name='Confirm')
+                    )
+                    confirm_btn.click(timeout=2000)
+                    _LOGGER.debug("Confirmed reboot with OK/Confirm")
+                except Exception:
+                    _LOGGER.warning("No confirmation button found - task may not execute")
             
             _LOGGER.info("Reboot initiated for device %s via GUI", cpe_id)
             return True
