@@ -528,7 +528,10 @@ class GenieAcsGUI(ACSGUI):
         'login_page': 'V_LOGIN_FORM_EMPTY',
         'home_page': 'V_OVERVIEW_PAGE',
         'device_list_page': 'V_DEVICES',
-        'device_details_page': 'V_DEVICE_DETAILS',
+        'device_list_with_data': 'V_STATE_002',  # Devices page showing device list
+        'device_search_results': 'V_STATE_005',  # Devices page with search filter applied
+        'device_details_page': 'V_STATE_006',  # Device details (parameters visible)
+        'device_details_with_task': 'V_STATE_009',  # Device details with reboot task overlay (Commit/Clear visible)
         'faults_page': 'V_FAULTS',
         'admin_page': 'V_ADMIN_PRESETS',
     }
@@ -741,16 +744,26 @@ class GenieAcsGUI(ACSGUI):
                 _LOGGER.warning("Not on login page, attempting to detect current state")
                 self._fsm_component.detect_current_state()
             
-            # Find and fill username input (using Playwright directly for now)
-            # FSM's find_element requires state to be in graph with element descriptors
-            username_input = self._driver.page.get_by_role('textbox').first
-            username_input.fill(username)
-            _LOGGER.debug("Entered username")
-            
-            # Find and fill password input
-            password_input = self._driver.page.get_by_role('textbox').nth(1)
-            password_input.fill(password)
-            _LOGGER.debug("Entered password")
+            # Find and fill username and password inputs
+            # The expanded FSM graph shows 2 textbox inputs on login page (username, password)
+            # Use FSM element finding with fallback to direct Playwright
+            try:
+                # Get all textbox inputs from login page
+                textboxes = self._driver.page.get_by_role('textbox').all()
+                if len(textboxes) >= 2:
+                    textboxes[0].fill(username)  # Username field
+                    _LOGGER.debug("Entered username")
+                    textboxes[1].fill(password)  # Password field
+                    _LOGGER.debug("Entered password")
+                else:
+                    raise ValueError(f"Expected 2 textboxes on login page, found {len(textboxes)}")
+            except Exception as e:
+                _LOGGER.warning("Could not find inputs via role, trying alternative: %s", e)
+                # Fallback to explicit selectors
+                username_input = self._driver.page.get_by_role('textbox').first
+                username_input.fill(username)
+                password_input = self._driver.page.get_by_role('textbox').nth(1)
+                password_input.fill(password)
             
             # Find and click login button
             login_btn = self._fsm_component.find_element(
@@ -1192,11 +1205,18 @@ class GenieAcsGUI(ACSGUI):
                 _LOGGER.error("Failed to navigate to device list page")
                 return False
             
-            # Search and navigate to device (using Playwright direct access)
+            # Search and navigate to device using FSM-aware approach
             # GenieACS uses a dropdown filter system:
             # 1. Click the search textbox to show dropdown
             # 2. Select "Serial number:" from dropdown
             # 3. Enter the serial number value
+            # This transitions from V_DEVICES → V_STATE_005 (device_search_results)
+            
+            _LOGGER.info("Searching for device %s in device list", cpe_id)
+            
+            # Extract serial number from CPE ID (format: OUI-SerialNumber)
+            serial_number = cpe_id.split('-')[-1]  # Get last part after dash
+            _LOGGER.debug("Using serial number: %s", serial_number)
             
             # Click textbox to activate dropdown
             search_input = self._driver.page.get_by_role('textbox')
@@ -1205,7 +1225,6 @@ class GenieAcsGUI(ACSGUI):
             time.sleep(0.3)  # Wait for dropdown to appear
             
             # Select "Serial number:" from the dropdown menu
-            # The dropdown options typically appear as list items or buttons
             try:
                 serial_number_option = self._driver.page.get_by_text('Serial number:', exact=False)
                 serial_number_option.click()
@@ -1214,35 +1233,46 @@ class GenieAcsGUI(ACSGUI):
             except Exception as e:
                 _LOGGER.warning("Could not select dropdown option: %s, trying direct input", e)
             
-            # Now fill in the serial number value
-            # Extract just the serial number part (SN665A3BA8824A) from full ID
-            # GenieACS stores SerialNumber in format like "SN665A3BA8824A"
-            serial_number = cpe_id.split('-')[-1]  # Get last part after dash
+            # Fill in the serial number to filter devices
             search_input.fill(serial_number)
-            _LOGGER.debug("Entered serial number: %s", serial_number)
+            _LOGGER.debug("Entered serial number in search field")
             time.sleep(1.5)  # Wait for search results to filter
             
-            # Click device link - in GenieACS, device IDs are links in the table
-            # Try both full ID and serial number formats
+            # Verify we're now in search results state (V_STATE_005)
+            search_results_state = self._get_fsm_state_id('device_search_results')
+            if self._fsm_component.verify_state(search_results_state, timeout=3):
+                _LOGGER.debug("Confirmed in search results state")
+                self._fsm_component.set_state(search_results_state, via_action='search_filtered')
+            
+            # Click device link to navigate to device details
+            # The FSM graph shows links with device serial numbers in the table
             try:
-                device_link = self._driver.page.get_by_role('link', name=cpe_id)
-                device_link.click()
-                _LOGGER.debug("Clicked device link: %s", cpe_id)
-            except Exception:
-                # Try with just serial number if full ID doesn't work
+                # Try serial number first (more reliable)
                 device_link = self._driver.page.get_by_role('link', name=serial_number)
                 device_link.click()
-                _LOGGER.debug("Clicked device link with serial: %s", serial_number)
+                _LOGGER.debug("Clicked device link: %s", serial_number)
+            except Exception:
+                # Fallback to full CPE ID
+                try:
+                    device_link = self._driver.page.get_by_role('link', name=cpe_id)
+                    device_link.click()
+                    _LOGGER.debug("Clicked device link: %s", cpe_id)
+                except Exception as e:
+                    _LOGGER.error("Could not find device link for %s: %s", cpe_id, e)
+                    return False
             
             time.sleep(1.5)  # Wait for device details page to load
             
-            # Should be on device details page now
+            # Verify we're on device details page (V_STATE_006)
             device_details_state = self._get_fsm_state_id('device_details_page')
-            self._fsm_component.set_state(device_details_state, via_action='device_selected')
+            if self._fsm_component.verify_state(device_details_state, timeout=5):
+                _LOGGER.debug("Confirmed on device details page")
+                self._fsm_component.set_state(device_details_state, via_action='device_selected')
             
-            # Find and click reboot button
-            # FSM's find_element will use role-based locators from graph
+            # Click reboot button - this should transition to V_STATE_009 (task overlay appears)
+            # The FSM graph shows Reboot button is available on device details page
             try:
+                # Try using FSM element finding first
                 reboot_btn = self._fsm_component.find_element(
                     device_details_state,
                     'button',
@@ -1250,35 +1280,51 @@ class GenieAcsGUI(ACSGUI):
                     timeout=self._gui_timeout
                 )
                 reboot_btn.click()
-                _LOGGER.debug("Clicked reboot button")
+                _LOGGER.debug("Clicked reboot button via FSM")
             except Exception:
-                # Fallback to direct Playwright if not in graph
+                # Fallback to direct Playwright
                 reboot_btn = self._driver.page.get_by_role('button', name='Reboot')
                 reboot_btn.click()
-                _LOGGER.debug("Clicked reboot button (fallback)")
+                _LOGGER.debug("Clicked reboot button via direct locator")
             
-            # Wait for overlay/modal to appear showing reboot task added
+            # Wait for task overlay to appear - this is V_STATE_009
             time.sleep(1.0)
             
-            # GenieACS shows an overlay with a "Commit" button
-            # The task is queued but not executed until "Commit" is clicked
-            # NOTE: Commit button triggers connection request to CPE automatically
-            try:
-                commit_btn = self._driver.page.get_by_role('button', name='Commit')
-                commit_btn.click(timeout=5000)
-                _LOGGER.info("Clicked 'Commit' button - triggers connection request and task execution")
-                time.sleep(2.0)  # Wait for commit to process and connection request to trigger
-            except Exception as e:
-                _LOGGER.warning("Could not find 'Commit' button, trying alternatives: %s", e)
-                # Try other common confirmation buttons
+            # Verify we're now in device details with task overlay (V_STATE_009)
+            # This state shows "Commit" and "Clear" buttons
+            device_details_with_task_state = self._get_fsm_state_id('device_details_with_task')
+            if self._fsm_component.verify_state(device_details_with_task_state, timeout=5):
+                _LOGGER.debug("Confirmed task overlay appeared (V_STATE_009)")
+                self._fsm_component.set_state(device_details_with_task_state, via_action='reboot_task_added')
+                
+                # Use FSM to find Commit button from V_STATE_009
                 try:
-                    confirm_btn = self._driver.page.get_by_role('button', name='OK').or_(
-                        self._driver.page.get_by_role('button', name='Confirm')
+                    commit_btn = self._fsm_component.find_element(
+                        device_details_with_task_state,
+                        'button',
+                        name='Commit',
+                        timeout=self._gui_timeout
                     )
-                    confirm_btn.click(timeout=2000)
-                    _LOGGER.debug("Confirmed reboot with OK/Confirm")
-                except Exception:
-                    _LOGGER.warning("No confirmation button found - task may not execute")
+                    commit_btn.click()
+                    _LOGGER.info("Clicked 'Commit' button via FSM - task execution initiated")
+                    time.sleep(2.0)  # Wait for commit to process
+                except Exception as e:
+                    _LOGGER.warning("Could not find Commit via FSM: %s, trying direct", e)
+                    commit_btn = self._driver.page.get_by_role('button', name='Commit')
+                    commit_btn.click(timeout=5000)
+                    _LOGGER.info("Clicked 'Commit' button - task execution initiated")
+                    time.sleep(2.0)
+            else:
+                _LOGGER.warning("Could not verify task overlay state, using fallback commit")
+                # Fallback commit button click
+                try:
+                    commit_btn = self._driver.page.get_by_role('button', name='Commit')
+                    commit_btn.click(timeout=5000)
+                    _LOGGER.info("Clicked 'Commit' button (fallback) - task execution initiated")
+                    time.sleep(2.0)
+                except Exception as e:
+                    _LOGGER.error("Could not find Commit button: %s", e)
+                    return False
             
             _LOGGER.info("Reboot initiated for device %s via GUI", cpe_id)
             return True
