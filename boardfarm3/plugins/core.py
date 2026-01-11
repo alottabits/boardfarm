@@ -20,6 +20,7 @@ from boardfarm3.devices.linux_wan import LinuxWAN
 from boardfarm3.devices.linux_wlan import LinuxWLAN
 from boardfarm3.devices.pjsip_phone import PJSIPPhone
 from boardfarm3.devices.prplos_cpe import PrplDockerCPE
+from boardfarm3.devices.rpiprplos_cpe import RPiPrplOSCPE
 from boardfarm3.devices.rpirdkb_cpe import RPiRDKBCPE
 from boardfarm3.devices.vcpe_ofw import VCPE_LXC
 from boardfarm3.exceptions import EnvConfigError
@@ -164,9 +165,11 @@ def boardfarm_add_devices() -> dict[str, type[BoardfarmDevice]]:
         "bf_wlan": LinuxWLAN,
         "bf_acs": GenieACS,
         "bf_cpe": PrplDockerCPE,
+        "bf_openwrt_cpe": OpenWrtCPE,
         "bf_dhcp": KeaProvisioner,
         "bf_kamailio": SIPcenterKamailio5,
         "bf_phone": PJSIPPhone,
+        "bf_rpiprplos_cpe": RPiPrplOSCPE,
         "bf_rpi4rdkb": RPiRDKBCPE,
         "axiros_acs": AxirosACS,
         "vcpe": VCPE_LXC,
