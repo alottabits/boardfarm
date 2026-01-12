@@ -165,7 +165,6 @@ def boardfarm_add_devices() -> dict[str, type[BoardfarmDevice]]:
         "bf_wlan": LinuxWLAN,
         "bf_acs": GenieACS,
         "bf_cpe": PrplDockerCPE,
-        "bf_openwrt_cpe": OpenWrtCPE,
         "bf_dhcp": KeaProvisioner,
         "bf_kamailio": SIPcenterKamailio5,
         "bf_phone": PJSIPPhone,
