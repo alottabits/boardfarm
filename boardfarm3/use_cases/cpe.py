@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from contextlib import contextmanager
 from string import Template
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from boardfarm3.exceptions import UseCaseFailure
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from boardfarm3.templates.acs import ACS
     from boardfarm3.templates.cpe import CPE
     from boardfarm3.templates.lan import LAN
     from boardfarm3.templates.wan import WAN
     from boardfarm3.templates.wlan import WLAN
+
+_LOGGER = logging.getLogger(__name__)
 
 
 _TOO_MANY_NTPS = 1
@@ -406,3 +411,341 @@ def upload_file_to_tftp(  # pylint: disable=too-many-arguments  # noqa: PLR0913
     if "No such file or directory" in output:
         msg = f"file not found {output}"
         raise UseCaseFailure(msg)
+
+
+# =============================================================================
+# Reboot and TR-069 Client Management
+# =============================================================================
+
+
+def wait_for_reboot_completion(
+    board: CPE,
+    timeout: int = 60,
+    poll_interval: int = 1,
+) -> bool:
+    """Wait for CPE to complete reboot process.
+
+    This function monitors the CPE for reboot completion by:
+    1. Waiting for the CPE to become unresponsive (reboot started)
+    2. Waiting for the CPE to become responsive again (reboot completed)
+
+    .. hint:: This Use Case implements statements from the test suite such as:
+
+        - The CPE executes the reboot command and restarts
+        - Wait for CPE to become unresponsive then responsive
+
+    :param board: CPE device instance
+    :type board: CPE
+    :param timeout: Maximum wait time in seconds
+    :type timeout: int
+    :param poll_interval: Interval between checks in seconds
+    :type poll_interval: int
+    :return: True if reboot completed successfully
+    :rtype: bool
+    :raises UseCaseFailure: If reboot does not complete within timeout
+    """
+    _LOGGER.info("Waiting for CPE reboot completion (timeout=%ds)...", timeout)
+
+    # Phase 1: Wait for CPE to become unresponsive
+    _LOGGER.info("Phase 1: Waiting for CPE to become unresponsive...")
+    unresponsive_timeout = timeout // 2
+    became_unresponsive = False
+
+    for _ in range(unresponsive_timeout // poll_interval):
+        try:
+            console = board.hw.get_console("console")
+            console.execute_command("echo test", timeout=2)
+            time.sleep(poll_interval)
+        except Exception:  # noqa: BLE001
+            became_unresponsive = True
+            _LOGGER.info("CPE became unresponsive - reboot started")
+            break
+
+    if not became_unresponsive:
+        msg = "CPE did not become unresponsive - reboot may not have started"
+        raise UseCaseFailure(msg)
+
+    # Phase 2: Wait for CPE to become responsive again
+    _LOGGER.info("Phase 2: Waiting for CPE to become responsive...")
+    responsive_timeout = timeout // 2
+    became_responsive = False
+
+    for _ in range(responsive_timeout // poll_interval):
+        try:
+            console = board.hw.get_console("console")
+            console.execute_command("echo test", timeout=5)
+            became_responsive = True
+            _LOGGER.info("CPE is responsive - reboot completed")
+            break
+        except Exception:  # noqa: BLE001
+            time.sleep(poll_interval)
+
+    if not became_responsive:
+        msg = "CPE did not become responsive after reboot"
+        raise UseCaseFailure(msg)
+
+    return True
+
+
+def stop_tr069_client(board: CPE) -> None:
+    """Stop TR-069 client on CPE (make unreachable for TR-069).
+
+    Stops the TR-069 client process (cwmp_plugin) on the CPE, which
+    prevents the CPE from receiving connection requests from the ACS
+    and participating in TR-069 sessions.
+
+    .. hint:: This Use Case implements statements from the test suite such as:
+
+        - The CPE is unreachable for TR-069 sessions
+        - Stop the TR-069 agent
+
+    :param board: CPE device instance
+    :type board: CPE
+    :raises UseCaseFailure: If TR-069 client cannot be stopped
+    """
+    _LOGGER.info("Stopping TR-069 client on CPE...")
+
+    console = board.hw.get_console("console")
+
+    # Stop using init script
+    console.execute_command("/etc/init.d/cwmp_plugin stop", timeout=10)
+
+    # Wait for process to stop
+    time.sleep(2)
+
+    # Verify TR-069 client is stopped
+    result = console.execute_command("pgrep cwmp_plugin", timeout=5)
+    if result.strip():
+        msg = "TR-069 client still running - could not stop cwmp_plugin"
+        raise UseCaseFailure(msg)
+
+    _LOGGER.info("TR-069 client stopped successfully")
+
+
+def start_tr069_client(board: CPE) -> None:
+    """Start TR-069 client on CPE (make reachable for TR-069).
+
+    Starts the TR-069 client process (cwmp_plugin) on the CPE, which
+    allows the CPE to receive connection requests from the ACS and
+    participate in TR-069 sessions. The client will send an Inform
+    message to the ACS when it starts.
+
+    .. hint:: This Use Case implements statements from the test suite such as:
+
+        - When the CPE comes online, it connects to the ACS
+        - Start the TR-069 agent
+
+    :param board: CPE device instance
+    :type board: CPE
+    :raises UseCaseFailure: If TR-069 client cannot be started
+    """
+    _LOGGER.info("Starting TR-069 client on CPE...")
+
+    console = board.hw.get_console("console")
+
+    # Start using init script
+    console.execute_command("/etc/init.d/cwmp_plugin start", timeout=10)
+
+    # Wait for process to start
+    time.sleep(5)
+
+    # Verify TR-069 client is running
+    result = console.execute_command("pgrep cwmp_plugin", timeout=5)
+    if not result.strip():
+        msg = "TR-069 client failed to start - cwmp_plugin not running"
+        raise UseCaseFailure(msg)
+
+    _LOGGER.info("TR-069 client started successfully")
+
+
+def refresh_console_connection(
+    board: CPE,
+    device_name: str | None = None,
+) -> bool:
+    """Refresh CPE console connection after reboot.
+
+    Disconnects and reconnects to the CPE console. This is necessary
+    after a reboot to ensure the console connection is valid.
+
+    .. hint:: This Use Case implements statements from the test suite such as:
+
+        - Reconnect to CPE console after reboot
+        - Refresh console connection
+
+    :param board: CPE device instance
+    :type board: CPE
+    :param device_name: Name of the device for reconnection (optional)
+    :type device_name: str | None
+    :return: True if reconnection successful
+    :rtype: bool
+    """
+    _LOGGER.info("Refreshing CPE console connection...")
+
+    # Disconnect from consoles
+    try:
+        board.hw.disconnect_from_consoles()
+    except Exception as e:  # noqa: BLE001
+        _LOGGER.debug("Error disconnecting from consoles (may be expected): %s", e)
+
+    # Reconnect to consoles
+    try:
+        name = device_name or getattr(board, "device_name", "cpe")
+        board.hw.connect_to_consoles(name)
+        _LOGGER.info("Console connection refreshed successfully")
+        return True
+    except Exception as e:  # noqa: BLE001
+        _LOGGER.error("Failed to refresh console connection: %s", e)
+        return False
+
+
+def get_console_uptime_seconds(board: CPE) -> int:
+    """Return CPE uptime in seconds using console for reliability.
+
+    Uses direct console access to get uptime, which is more reliable
+    during boot sequences when the software layer may not be fully
+    operational.
+
+    .. hint:: This Use Case implements statements from the test suite such as:
+
+        - Get CPE uptime via console
+        - Check uptime to verify reboot
+
+    :param board: CPE device instance
+    :type board: CPE
+    :return: Uptime in seconds
+    :rtype: int
+    """
+    try:
+        return int(board.sw.get_seconds_uptime())
+    except Exception:  # noqa: BLE001
+        # Fallback to direct console command
+        console = board.hw.get_console("console")
+        output = console.execute_command("cut -d' ' -f1 /proc/uptime")
+        return int(float(output.strip() or "0"))
+
+
+def verify_config_preservation(
+    board: CPE,
+    acs: ACS,
+    config_before: dict[str, Any],
+) -> list[str]:
+    """Verify CPE configuration preserved after reboot.
+
+    Compares key configuration parameters captured before reboot with
+    current values to verify they were preserved.
+
+    .. hint:: This Use Case implements statements from the test suite such as:
+
+        - The CPE's configuration and operational state are preserved after reboot
+        - Verify config parameters match pre-reboot values
+
+    :param board: CPE device instance
+    :type board: CPE
+    :param acs: ACS device instance
+    :type acs: ACS
+    :param config_before: Configuration captured before reboot
+    :type config_before: dict[str, Any]
+    :return: List of verification errors (empty if all preserved)
+    :rtype: list[str]
+    """
+    # Import here to avoid circular imports
+    from boardfarm3.use_cases import acs as acs_use_cases
+
+    _LOGGER.info("Verifying configuration preservation...")
+
+    if not config_before:
+        _LOGGER.warning("No configuration captured before reboot")
+        return ["No configuration captured before reboot"]
+
+    verification_errors: list[str] = []
+    cpe_id = board.sw.cpe_id
+
+    for config_key, config_data in config_before.items():
+        if not isinstance(config_data, dict):
+            continue
+
+        # Simple value verification
+        if "gpv_param" in config_data and "value" in config_data:
+            try:
+                current_value = acs_use_cases.get_parameter_value(
+                    acs, board, config_data["gpv_param"]
+                )
+                expected_value = str(config_data["value"])
+                if current_value != expected_value:
+                    verification_errors.append(
+                        f"{config_key} changed: {expected_value} → {current_value}"
+                    )
+                else:
+                    _LOGGER.info("%s preserved: %s", config_key, current_value)
+            except Exception as e:  # noqa: BLE001
+                verification_errors.append(f"Could not verify {config_key}: {e}")
+
+        # Dict-based verification (for complex configs like users, wifi_ssids)
+        elif "count" in config_data and "items" in config_data:
+            try:
+                # Verify count
+                if config_data.get("count"):
+                    count_gpv = config_data["count"]["gpv_param"]
+                    expected_count = config_data["count"]["value"]
+                    result = acs.nbi.GPV(count_gpv, cpe_id=cpe_id, timeout=30)
+                    if result:
+                        current_count = int(result[0].get("value", 0))
+                        if current_count != expected_count:
+                            verification_errors.append(
+                                f"{config_key} count changed: "
+                                f"{expected_count} → {current_count}"
+                            )
+
+                # Verify items
+                for item_idx, item_fields in config_data.get("items", {}).items():
+                    for field_name, field_data in item_fields.items():
+                        if not isinstance(field_data, dict):
+                            continue
+                        if "gpv_param" not in field_data or "value" not in field_data:
+                            continue
+
+                        try:
+                            current_value = acs_use_cases.get_parameter_value(
+                                acs, board, field_data["gpv_param"]
+                            )
+                            expected_value = field_data["value"]
+
+                            # Handle boolean comparison
+                            if isinstance(expected_value, bool):
+                                current_bool = current_value.lower() in (
+                                    "true",
+                                    "1",
+                                    "enabled",
+                                )
+                                if current_bool != expected_value:
+                                    verification_errors.append(
+                                        f"{config_key} {item_idx} {field_name} "
+                                        f"changed: {expected_value} → {current_bool}"
+                                    )
+                            elif str(current_value) != str(expected_value):
+                                verification_errors.append(
+                                    f"{config_key} {item_idx} {field_name} "
+                                    f"changed: {expected_value} → {current_value}"
+                                )
+                            else:
+                                _LOGGER.info(
+                                    "%s %s %s preserved",
+                                    config_key,
+                                    item_idx,
+                                    field_name,
+                                )
+                        except Exception as e:  # noqa: BLE001
+                            verification_errors.append(
+                                f"Could not verify {config_key} {item_idx} "
+                                f"{field_name}: {e}"
+                            )
+
+            except Exception as e:  # noqa: BLE001
+                verification_errors.append(f"Could not verify {config_key}: {e}")
+
+    if verification_errors:
+        _LOGGER.warning("Configuration verification errors: %s", verification_errors)
+    else:
+        _LOGGER.info("All configuration parameters preserved after reboot")
+
+    return verification_errors
