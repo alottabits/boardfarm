@@ -564,11 +564,45 @@ class PJSIPPhone(LinuxDevice, SIPPhoneTemplate):
     def is_ringing(self) -> bool:
         """Is the line ringing.
 
+        Note: This method checks for "180 Ringing" in the console buffer,
+        which is a transient SIP response message. For a more reliable check
+        of whether the phone has an incoming call waiting, use the
+        has_incoming_call() method instead.
+
         :return: if the line is ringing
         :rtype: bool
         """
         self._is_phone_started()
         return self.validate_state("180 Ringing")
+
+    def has_incoming_call(self) -> bool:
+        """Check if there's an incoming call waiting to be answered.
+
+        This method is more reliable than is_ringing() because it checks
+        the current call state by refreshing the pjsua status display,
+        rather than looking for a transient "180 Ringing" SIP message
+        that may have scrolled off the console buffer.
+
+        An incoming call is detected when:
+        - There's an active call in EARLY state, OR
+        - The "Press a to answer" prompt is visible
+
+        :return: True if there's an incoming call to answer
+        :rtype: bool
+        """
+        self._is_phone_started()
+        out = False
+        with suppress(pexpect.TIMEOUT):
+            self._console.sendline("\n")
+            self._console.expect(self._pjsip_prompt)
+            # Check for active call in EARLY state (ringing, not yet answered)
+            # The pattern matches: "Current call id=X to <sip:...> [EARLY]"
+            try:
+                self._console.expect(r"\[EARLY\]", timeout=1)
+                out = True
+            except pexpect.TIMEOUT:
+                pass
+        return out
 
     def is_connected(self) -> bool:
         """Is it the call connected.

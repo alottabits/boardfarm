@@ -108,12 +108,12 @@ def put_phone_offhook(who_puts_offhook: VoiceClient) -> None:
     who_puts_offhook.off_hook()
 
 
-def answer_a_call(who_answers: VoiceClient) -> bool:
+def answer_a_call(who_answers: VoiceClient, timeout: int = 5) -> bool:
     """Answer a ringing call by target SIP agent.
 
     Execution order:
-    - Ensure there is a ring on the target agent.
-    - Pick up the call
+    - Verify phone has an incoming call (using reliable state check)
+    - Attempt to answer the call
     - Ensure the line is connected
 
     .. hint:: This Use Case implements statements from the test suite such as:
@@ -122,15 +122,54 @@ def answer_a_call(who_answers: VoiceClient) -> bool:
 
     :param who_answers: SIP agent who is suppose to answer the call.
     :type who_answers: VoiceClient
+    :param timeout: Maximum seconds to wait for connected state after answering
+    :type timeout: int
     :raises VoiceError: In case answering the call fails.
     :return: True if call is connected, else False
     :rtype: bool
     """
-    if not who_answers.is_ringing():
+    import time
+
+    # Check for incoming call using the most reliable method available.
+    # has_incoming_call() checks the current call state (EARLY) by refreshing
+    # the status display, which is more reliable than is_ringing() that looks
+    # for a transient "180 Ringing" message in the console buffer.
+    has_call = False
+    if hasattr(who_answers, "has_incoming_call"):
+        has_call = who_answers.has_incoming_call()
+        _LOGGER.debug(f"{who_answers.name} has_incoming_call() = {has_call}")
+    else:
+        # Fallback to is_ringing() for devices that don't have has_incoming_call
+        has_call = who_answers.is_ringing()
+        _LOGGER.debug(f"{who_answers.name} is_ringing() = {has_call}")
+
+    if not has_call:
         msg = f"{who_answers.name} is not ringing!!"
         raise VoiceError(msg)
-    who_answers.answer()
 
+    # Proceed to answering the call
+    try:
+        result = who_answers.answer()
+        # Some implementations return False instead of raising when there's no call
+        if result is False:
+            # Double-check if we're actually not in a valid state to answer
+            if not who_answers.is_connected():
+                msg = f"{who_answers.name} failed to answer - no call connected"
+                raise VoiceError(msg)
+    except VoiceError:
+        raise
+    except Exception as exc:
+        msg = f"Failed to answer call on {who_answers.name}: {exc}"
+        raise VoiceError(msg) from exc
+
+    # Wait for connected state with polling
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if who_answers.is_connected():
+            return True
+        time.sleep(0.5)
+
+    # Return the connection status even if timeout reached
     return who_answers.is_connected()
 
 
