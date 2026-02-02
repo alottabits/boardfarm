@@ -20,8 +20,6 @@ if TYPE_CHECKING:
     from boardfarm3.templates.wan import WAN
     from boardfarm3.templates.wlan import WLAN
 
-_LOGGER = logging.getLogger(__name__)
-
 
 _TOO_MANY_NTPS = 1
 
