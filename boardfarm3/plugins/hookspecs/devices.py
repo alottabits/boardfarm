@@ -184,6 +184,27 @@ def boardfarm_device_boot(
 
 
 @hookspec
+async def boardfarm_device_boot_async(
+    config: BoardfarmConfig,
+    cmdline_args: Namespace,
+    device_manager: DeviceManager,
+) -> None:
+    """Boot boardfarm device leveraging the asyncio library.
+
+    This hook should be used to boot a device which is dependent on one or more
+    servers in the environment. E.g. CPE.
+    To be used for the asynchronous implementation.
+
+    :param config: boardfarm config instance
+    :type config: BoardfarmConfig
+    :param cmdline_args: command line arguments
+    :type cmdline_args: Namespace
+    :param device_manager: device manager instance
+    :type device_manager: DeviceManager
+    """
+
+
+@hookspec
 def boardfarm_device_configure(
     config: BoardfarmConfig,
     cmdline_args: Namespace,
