@@ -69,6 +69,11 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
                 "wan_gateways not configured; get_wan_path_metrics and apply_policy "
                 "may not work correctly. Example: {\"wan1\": \"10.10.1.2\", \"wan2\": \"10.10.2.2\"}"
             )
+        # wan_metrics maps WAN label → kernel metric (lower = higher priority).
+        # When bring_wan_up() is called, the route is re-installed with this metric
+        # because the kernel automatically removes it when the interface went down.
+        # Must match the metrics used by the init script's ip route commands.
+        self._wan_metrics: dict[str, int] = config.get("wan_metrics", {})
 
     def _to_logical(self, physical: str) -> str:
         """Translate a physical interface name to its logical WAN label."""
@@ -191,6 +196,10 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
             output = self._console.execute_command(
                 f"ping -c 5 -i 0.2 {gateway} 2>/dev/null || echo '100% packet loss'"
             )
+            # Strip pexpect command-echo: jc expects output starting at "PING "
+            ping_start = output.find("PING ")
+            if ping_start > 0:
+                output = output[ping_start:]
             try:
                 parsed = jc.parsers.ping.parse(output)
             except Exception:
@@ -203,9 +212,20 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
                 continue
             if isinstance(parsed, list):
                 parsed = parsed[0] if parsed else {}
-            rtt = parsed.get("rtt_avg_ms") or parsed.get("round_trip_avg_ms") or 0.0
-            mdev = parsed.get("rtt_mdev_ms") or 0.0
-            loss = parsed.get("packet_loss_percent") or 100.0
+            rtt = (
+                parsed.get("round_trip_ms_avg")
+                or parsed.get("rtt_avg_ms")
+                or parsed.get("round_trip_avg_ms")
+                or 0.0
+            )
+            mdev = (
+                parsed.get("round_trip_ms_stddev")
+                or parsed.get("rtt_mdev_ms")
+                or 0.0
+            )
+            # Use explicit None check — 0% loss is falsy and must not be replaced
+            loss_val = parsed.get("packet_loss_percent")
+            loss = 100.0 if loss_val is None else loss_val
             result[label] = PathMetrics(
                 latency_ms=float(rtt),
                 jitter_ms=float(mdev),
@@ -351,11 +371,29 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
         self._console.execute_command(f"ip link set {physical} down")
 
     def bring_wan_up(self, label: str, via: str = "console") -> None:
-        """Bring a WAN interface up."""
+        """Bring a WAN interface up and restore its default route.
+
+        The Linux kernel automatically removes a nexthop route when its
+        interface goes down (see bring_wan_down).  After bringing the
+        interface back up, the route must be re-installed explicitly.
+        The kernel metric comes from wan_metrics config (must match the
+        values used by the container init script).
+        """
         physical = self._wan_interfaces.get(label)
         if not physical:
             raise KeyError(f"Unknown WAN label {label!r}")
         self._console.execute_command(f"ip link set {physical} up")
+        gateway = self._wan_gateways.get(label)
+        metric = self._wan_metrics.get(label)
+        if gateway and metric is not None:
+            self._console.execute_command(
+                f"ip route replace default via {gateway} dev {physical} "
+                f"metric {metric} proto static"
+            )
+            _LOGGER.debug(
+                "%s bring_wan_up(%r): restored default route via %s metric %d",
+                self.device_name, label, gateway, metric,
+            )
 
     def _get_container_name(self) -> str | None:
         """Extract container name from config for docker exec / local_cmd."""
@@ -430,35 +468,82 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
         raise DeviceBootFailure(msg)
 
     def _wait_for_frr(self, timeout_s: int = 45) -> None:
-        """Wait until FRR has installed routes (ip route get succeeds).
+        """Wait until kernel routes are ready AND vtysh responds.
 
-        FRR daemons need time after interfaces appear. Without this, vtysh and
-        route lookups can fail with 'Network is unreachable'.
+        Three conditions are checked on every poll:
+
+        1. **Connected routes** — ``ip route show`` lists at least one route
+           per WAN interface (satisfied as soon as the interfaces are up).
+        2. **Default route** — ``ip route show`` contains a ``default`` entry,
+           confirming the init script has finished installing the kernel default
+           routes (metric-differentiated WAN1/WAN2 routes).
+        3. **FRR control plane** — ``vtysh -c "show version"`` completes
+           without a "Cannot connect" error, so boardfarm can apply PBR
+           policies via ``_run_vtysh()``.
+
+        All three must be satisfied before this method returns.
         """
-        probe_dst = "8.8.8.8"
+        wan_devs = set(self._wan_interfaces.values())
         elapsed = 0
         interval_s = 2
+        routes_ok = False
+        default_ok = False
+        vtysh_ok = False
         while elapsed < timeout_s:
-            out = self._console.execute_command(f"ip -o route get {probe_dst} 2>/dev/null || true")
-            if "dev" in out and "Network is unreachable" not in out:
-                wan_devs = set(self._wan_interfaces.values())
-                for dev in wan_devs:
-                    if f"dev {dev}" in out or f"dev {dev} " in out:
-                        _LOGGER.info("FRR routes ready on %s", self.device_name)
-                        return
+            if not routes_ok or not default_ok:
+                route_out = self._console.execute_command("ip route show 2>/dev/null || true")
+                routes_ok = all(f"dev {dev}" in route_out for dev in wan_devs)
+                default_ok = "default" in route_out
+
+            if not vtysh_ok:
+                vtysh_out = self._console.execute_command(
+                    "vtysh -c 'show version' 2>&1 || true"
+                )
+                vtysh_ok = (
+                    "FRRouting" in vtysh_out
+                    and "Cannot connect" not in vtysh_out
+                    and "Failed to connect" not in vtysh_out
+                )
+
+            if routes_ok and default_ok and vtysh_ok:
+                _LOGGER.info(
+                    "FRR ready on %s (connected routes: %s, default route: OK, vtysh: OK)",
+                    self.device_name,
+                    sorted(wan_devs),
+                )
+                return
+
+            _LOGGER.debug(
+                "%s waiting for FRR: routes_ok=%s default_ok=%s vtysh_ok=%s (elapsed=%ds)",
+                self.device_name, routes_ok, default_ok, vtysh_ok, elapsed,
+            )
             sleep(interval_s)
             elapsed += interval_s
-        msg = f"FRR routes not ready on {self.device_name} within {timeout_s}s"
-        raise DeviceBootFailure(msg)
+
+        missing = []
+        if not routes_ok:
+            missing.append("kernel routes on WAN interfaces")
+        if not default_ok:
+            missing.append("kernel default route (init script not complete?)")
+        if not vtysh_ok:
+            missing.append("vtysh connectivity")
+        raise DeviceBootFailure(
+            f"FRR not ready on {self.device_name} within {timeout_s}s: "
+            f"{' and '.join(missing)} not available"
+        )
 
     def get_telemetry(self, via: str = "nbi") -> dict:
-        """Return device telemetry (uptime, CPU, memory)."""
+        """Return device telemetry (uptime, CPU, memory).
+
+        Uses regex extraction so that pexpect command-echo in the output does
+        not cause silent parse failures.
+        """
         result: dict[str, Any] = {}
         try:
             uptime_out = self._console.execute_command("cat /proc/uptime")
-            parts = uptime_out.split()
-            if parts:
-                result["uptime_seconds"] = float(parts[0])
+            # /proc/uptime: "<uptime_sec> <idle_sec>" — find the first float
+            m = re.search(r"(\d+\.\d+)\s+\d+\.\d+", uptime_out)
+            result["uptime_seconds"] = float(m.group(1)) if m else 0.0
         except Exception:
             result["uptime_seconds"] = 0.0
         try:

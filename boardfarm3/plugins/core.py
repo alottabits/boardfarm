@@ -17,6 +17,8 @@ from boardfarm3.devices.kea_provisioner import KeaProvisioner
 from boardfarm3.devices.linux_lan import LinuxLAN
 from boardfarm3.devices.linux_tftp import LinuxTFTP
 from boardfarm3.devices.linux_sdwan_router import LinuxSDWANRouter
+from boardfarm3.devices.linux_traffic_controller import LinuxTrafficController
+from boardfarm3.devices.playwright_qoe_client import PlaywrightQoEClient
 from boardfarm3.devices.linux_wan import LinuxWAN
 from boardfarm3.devices.linux_wlan import LinuxWLAN
 from boardfarm3.devices.pjsip_phone import PJSIPPhone
@@ -174,6 +176,8 @@ def boardfarm_add_devices() -> dict[str, type[BoardfarmDevice]]:
         "axiros_acs": AxirosACS,
         "vcpe": VCPE_LXC,
         "linux_sdwan_router": LinuxSDWANRouter,
+        "linux_traffic_controller": LinuxTrafficController,
+        "playwright_qoe_client": PlaywrightQoEClient,
     }
 
 
