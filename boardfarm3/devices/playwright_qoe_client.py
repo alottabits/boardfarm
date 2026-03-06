@@ -1,7 +1,7 @@
 """Boardfarm PlaywrightQoEClient device module.
 
 Implements :class:`~boardfarm3.templates.qoe_client.QoEClient` using Playwright +
-Chromium running inside the ``lan-client`` Docker container.  Measurements are
+Chromium running inside the ``lan-qoe-client`` Docker container.  Measurements are
 executed by writing Python scripts to the remote container via SSH and parsing
 JSON from stdout.
 
@@ -16,7 +16,7 @@ device, and executed with ``python3``.  This avoids all shell-escaping complexit
 
 **Container requirements:**
 
-The ``lan-client`` container must have:
+The ``lan-qoe-client`` container must have:
 
 - ``playwright`` Python package installed (``playwright install chromium``).
 - ``chromium`` browser installed (included in Playwright install).
@@ -28,7 +28,7 @@ The ``lan-client`` container must have:
 Required keys in the Boardfarm inventory JSON::
 
     {
-      "name": "lan_client",
+      "name": "lan_qoe_client",
       "type": "playwright_qoe_client",
       "connection_type": "authenticated_ssh",
       "ipaddr": "localhost",
@@ -60,22 +60,34 @@ from boardfarm3.templates.qoe_client import QoEClient
 _LOGGER = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Remote Playwright scripts (executed via python3 on the lan-client container)
+# Remote Playwright scripts (executed via python3 on the lan-qoe-client container)
 # ---------------------------------------------------------------------------
 
 _PRODUCTIVITY_SCRIPT = textwrap.dedent("""
     import asyncio
     import json
     import sys
+    from urllib.parse import urlparse
 
     URL = {url_repr}
 
     async def main():
         from playwright.async_api import async_playwright
+
+        chromium_args = [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--enable-quic",
+        ]
+        parsed = urlparse(URL)
+        if parsed.scheme == "https":
+            port = parsed.port or 443
+            chromium_args.append(f"--origin-to-force-quic-on={parsed.hostname}:{port}")
+
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(
                 headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage"],
+                args=chromium_args,
             )
             page = await browser.new_page()
             try:
@@ -217,11 +229,13 @@ _CONFERENCING_SCRIPT = textwrap.dedent("""
                 args=[
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
+                    "--enable-quic",
                     "--use-fake-ui-for-media-stream",
                     "--use-fake-device-for-media-stream",
                 ],
             )
             page = await browser.new_page()
+            page.set_default_timeout((DURATION_S + 15) * 1000)
             try:
                 # Inject a WebRTC echo session using the pion signaling WebSocket.
                 # The session_url is the WebSocket signaling endpoint (e.g. ws://...).
@@ -278,23 +292,27 @@ _CONFERENCING_SCRIPT = textwrap.dedent("""
                                     setTimeout(async () => {
                                         try {
                                             const statsReport = await pc.getStats();
-                                            let rttMs = null, jitterMs = null, lossAbs = null, sent = null, lost = null;
+                                            let rttMs = null, iceRttMs = null, jitterMs = null, lossAbs = null, sent = null;
                                             statsReport.forEach(s => {
                                                 if (s.type === "remote-inbound-rtp") {
                                                     if (s.roundTripTime != null) rttMs = s.roundTripTime * 1000;
                                                     if (s.jitter != null) jitterMs = s.jitter * 1000;
                                                     if (s.packetsLost != null) lossAbs = s.packetsLost;
                                                 }
+                                                if (s.type === "candidate-pair" && s.state === "succeeded") {
+                                                    if (s.currentRoundTripTime != null) iceRttMs = s.currentRoundTripTime * 1000;
+                                                }
                                                 if (s.type === "outbound-rtp") {
                                                     if (s.packetsSent != null) sent = s.packetsSent;
                                                 }
                                             });
+                                            const bestRtt = rttMs != null ? rttMs : iceRttMs;
                                             const lossPct = (sent && lossAbs != null && sent > 0)
                                                 ? (lossAbs / (sent + lossAbs)) * 100
                                                 : 0.0;
                                             finish({
                                                 success: true,
-                                                latency_ms: rttMs != null ? rttMs / 2 : null,
+                                                latency_ms: bestRtt != null ? bestRtt / 2 : null,
                                                 jitter_ms: jitterMs,
                                                 packet_loss_pct: lossPct,
                                             });
@@ -311,7 +329,6 @@ _CONFERENCING_SCRIPT = textwrap.dedent("""
                         });
                     }\"\"\",
                     [SESSION_URL, DURATION_S],
-                    timeout=(DURATION_S + 15) * 1000,
                 )
                 print(json.dumps(stats))
             except Exception as exc:
@@ -376,7 +393,7 @@ def _parse_json_result(raw: str) -> dict:
 class PlaywrightQoEClient(LinuxDevice, QoEClient):
     """Boardfarm QoE measurement device using Playwright + Chromium.
 
-    Executes headless Chromium measurements on the ``lan-client`` container via SSH.
+    Executes headless Chromium measurements on the ``lan-qoe-client`` container via SSH.
     Implements all four methods of the :class:`~boardfarm3.templates.qoe_client.QoEClient`
     template.
 
@@ -571,31 +588,31 @@ class PlaywrightQoEClient(LinuxDevice, QoEClient):
 
     @hookimpl
     def boardfarm_skip_boot(self) -> None:
-        """Connect to the lan-client container (skip-boot path)."""
+        """Connect to the lan-qoe-client container (skip-boot path)."""
         _LOGGER.info("Initializing %s (%s)", self.device_name, self.device_type)
         self._connect()
 
     @hookimpl
     async def boardfarm_skip_boot_async(self) -> None:
-        """Connect to the lan-client container — async variant."""
+        """Connect to the lan-qoe-client container — async variant."""
         _LOGGER.info("Initializing %s (%s)", self.device_name, self.device_type)
         await self._connect_async()
 
     @hookimpl
     def boardfarm_device_boot(self, device_manager: object) -> None:  # pylint: disable=unused-argument
-        """Connect to the lan-client container (full-boot path)."""
+        """Connect to the lan-qoe-client container (full-boot path)."""
         _LOGGER.info("Booting %s (%s)", self.device_name, self.device_type)
         self._connect()
 
     @hookimpl
     async def boardfarm_device_boot_async(self, device_manager: object) -> None:  # pylint: disable=unused-argument
-        """Connect to the lan-client container — async variant."""
+        """Connect to the lan-qoe-client container — async variant."""
         _LOGGER.info("Booting %s (%s)", self.device_name, self.device_type)
         await self._connect_async()
 
     @hookimpl
     def boardfarm_shutdown_device(self) -> None:
-        """Disconnect from the lan-client container."""
+        """Disconnect from the lan-qoe-client container."""
         _LOGGER.info("Shutdown %s (%s)", self.device_name, self.device_type)
         self._disconnect()
 
