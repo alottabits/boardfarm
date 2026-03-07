@@ -309,6 +309,54 @@ def assert_path_metrics_within_slo(
 
 
 # ---------------------------------------------------------------------------
+# Path-switch polling (no injection — for use between BDD steps)
+# ---------------------------------------------------------------------------
+
+
+def wait_for_path_switch(
+    dut: WANEdgeDevice,
+    expected_wan: str,
+    timeout_ms: int = 5_000,
+    poll_interval_ms: int = 50,
+    *,
+    label: str = "",
+) -> float:
+    """Poll until the DUT's active forwarding path matches *expected_wan*.
+
+    Unlike :func:`measure_failover_convergence`, this function does **not**
+    inject any impairment — it only polls.  Use it when the impairment (or
+    recovery) has already been applied in a prior BDD step and you need to
+    wait for the DUT to react.
+
+    .. hint:: Implements steps such as:
+
+        - Then the appliance converges to wan2 within 1000 ms
+        - Then the appliance fails back to wan1 as the preferred path
+        - Then the appliance steers traffic to wan2
+
+    :param dut: WANEdgeDevice under test.
+    :param expected_wan: Logical WAN label to wait for (e.g. ``"wan2"``).
+    :param timeout_ms: Maximum wait before raising (ms).
+    :param poll_interval_ms: Polling interval (ms).
+    :param label: Optional scenario label for assertion messages.
+    :return: Elapsed time in milliseconds until the path matched.
+    :raises AssertionError: if the path does not match within *timeout_ms*.
+    """
+    prefix = f"[{label}] " if label else ""
+    t0 = time.monotonic()
+    deadline = t0 + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        if dut.get_active_wan_interface() == expected_wan:
+            return (time.monotonic() - t0) * 1000
+        time.sleep(poll_interval_ms / 1000)
+    active = dut.get_active_wan_interface()
+    raise AssertionError(
+        f"{prefix}DUT did not switch to {expected_wan!r} within {timeout_ms}ms "
+        f"(current active: {active!r})"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Convergence time measurement
 # ---------------------------------------------------------------------------
 
