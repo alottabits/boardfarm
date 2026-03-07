@@ -467,33 +467,53 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
         msg = f"Interfaces {sorted(required)} not ready on {self.device_name} within {timeout_s}s"
         raise DeviceBootFailure(msg)
 
-    def _wait_for_frr(self, timeout_s: int = 45) -> None:
-        """Wait until kernel routes are ready AND vtysh responds.
+    def _install_default_routes(self) -> None:
+        """Install kernel default routes from wan_gateways / wan_metrics config.
 
-        Three conditions are checked on every poll:
+        Uses ``ip route replace`` so it is idempotent.  Raises
+        :class:`DeviceBootFailure` if wan_gateways is not configured.
+        """
+        if not self._wan_gateways:
+            raise DeviceBootFailure(
+                f"Cannot install default routes on {self.device_name}: "
+                "wan_gateways not configured in inventory config"
+            )
+        for label, gateway in self._wan_gateways.items():
+            iface = self._wan_interfaces.get(label)
+            if not iface:
+                continue
+            metric = self._wan_metrics.get(label)
+            cmd = f"ip route replace default via {gateway} dev {iface}"
+            if metric is not None:
+                cmd += f" metric {metric}"
+            cmd += " proto static"
+            _LOGGER.info("Installing default route on %s: %s", self.device_name, cmd)
+            self._console.execute_command(cmd)
+
+    def _wait_for_frr(self, timeout_s: int = 45) -> None:
+        """Wait for FRR control plane, then install and verify default routes.
+
+        Two preconditions are polled until satisfied:
 
         1. **Connected routes** — ``ip route show`` lists at least one route
-           per WAN interface (satisfied as soon as the interfaces are up).
-        2. **Default route** — ``ip route show`` contains a ``default`` entry,
-           confirming the init script has finished installing the kernel default
-           routes (metric-differentiated WAN1/WAN2 routes).
-        3. **FRR control plane** — ``vtysh -c "show version"`` completes
-           without a "Cannot connect" error, so boardfarm can apply PBR
-           policies via ``_run_vtysh()``.
+           per WAN interface (confirms Raikou interfaces have IPs).
+        2. **FRR control plane** — ``vtysh -c "show version"`` succeeds
+           (confirms FRR daemons are ready for PBR policy commands).
 
-        All three must be satisfied before this method returns.
+        Once both are met, default routes are installed via
+        :meth:`_install_default_routes` using the wan_gateways and wan_metrics
+        from the boardfarm inventory config, and a final verification confirms
+        the ``default`` entry is present in the kernel routing table.
         """
         wan_devs = set(self._wan_interfaces.values())
         elapsed = 0
         interval_s = 2
         routes_ok = False
-        default_ok = False
         vtysh_ok = False
         while elapsed < timeout_s:
-            if not routes_ok or not default_ok:
+            if not routes_ok:
                 route_out = self._console.execute_command("ip route show 2>/dev/null || true")
                 routes_ok = all(f"dev {dev}" in route_out for dev in wan_devs)
-                default_ok = "default" in route_out
 
             if not vtysh_ok:
                 vtysh_out = self._console.execute_command(
@@ -505,31 +525,38 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
                     and "Failed to connect" not in vtysh_out
                 )
 
-            if routes_ok and default_ok and vtysh_ok:
-                _LOGGER.info(
-                    "FRR ready on %s (connected routes: %s, default route: OK, vtysh: OK)",
-                    self.device_name,
-                    sorted(wan_devs),
-                )
-                return
+            if routes_ok and vtysh_ok:
+                break
 
             _LOGGER.debug(
-                "%s waiting for FRR: routes_ok=%s default_ok=%s vtysh_ok=%s (elapsed=%ds)",
-                self.device_name, routes_ok, default_ok, vtysh_ok, elapsed,
+                "%s waiting for FRR: routes_ok=%s vtysh_ok=%s (elapsed=%ds)",
+                self.device_name, routes_ok, vtysh_ok, elapsed,
             )
             sleep(interval_s)
             elapsed += interval_s
+        else:
+            missing = []
+            if not routes_ok:
+                missing.append("kernel routes on WAN interfaces")
+            if not vtysh_ok:
+                missing.append("vtysh connectivity")
+            raise DeviceBootFailure(
+                f"FRR not ready on {self.device_name} within {timeout_s}s: "
+                f"{' and '.join(missing)} not available"
+            )
 
-        missing = []
-        if not routes_ok:
-            missing.append("kernel routes on WAN interfaces")
-        if not default_ok:
-            missing.append("kernel default route (init script not complete?)")
-        if not vtysh_ok:
-            missing.append("vtysh connectivity")
-        raise DeviceBootFailure(
-            f"FRR not ready on {self.device_name} within {timeout_s}s: "
-            f"{' and '.join(missing)} not available"
+        self._install_default_routes()
+
+        route_out = self._console.execute_command("ip route show 2>/dev/null || true")
+        if "default" not in route_out:
+            raise DeviceBootFailure(
+                f"Default routes failed to install on {self.device_name}. "
+                f"Route table after install:\n{route_out}"
+            )
+        _LOGGER.info(
+            "FRR ready on %s (connected routes: %s, default routes: installed, vtysh: OK)",
+            self.device_name,
+            sorted(wan_devs),
         )
 
     def get_telemetry(self, via: str = "nbi") -> dict:
