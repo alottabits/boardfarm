@@ -248,11 +248,11 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
 
     def get_wan_interface_status(self, via: str = "console") -> dict[str, LinkStatus]:
         """Return UP/DOWN state for each WAN interface."""
-        output = self._console.execute_command("ip -j link show")
+        output = self._console.execute_command("ip -j addr show")
         try:
             links = json.loads(self._extract_json(output))
         except json.JSONDecodeError as exc:
-            raise ValueError(f"Could not parse 'ip -j link show' output: {output}") from exc
+            raise ValueError(f"Could not parse 'ip -j addr show' output: {output}") from exc
         result: dict[str, LinkStatus] = {}
         physical_names = set(self._wan_interfaces.values())
         for link in links:
