@@ -232,6 +232,7 @@ _CONFERENCING_SCRIPT = textwrap.dedent("""
                     "--enable-quic",
                     "--use-fake-ui-for-media-stream",
                     "--use-fake-device-for-media-stream",
+                    "--disable-features=ChromeRootStoreUsed",
                 ],
             )
             page = await browser.new_page()
