@@ -36,6 +36,10 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+_FRR_POLL_INTERVAL_S = 2
+_FRR_ROUTE_INSTALL_RETRIES = 3
+_FRR_ROUTE_VERIFY_DELAY_S = 2
+
 # Shell prompts: bash (root@host:path#) and minimal (#)
 LINUX_SDWAN_SHELL_PROMPTS = [
     r"[\w\-]+@[\w\-]+:[\w/~]+#",  # bash: root@sdwan-router:~#
@@ -529,6 +533,42 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
         msg = f"Failed to reconnect to {self.device_name} within {timeout_s}s after reboot"
         raise DeviceBootFailure(msg) from last_exc
 
+    def _wait_for_init_complete(self, timeout_s: int = 180) -> None:
+        """Wait for the container init script to finish.
+
+        The SD-WAN router init script (``/root/init``) performs interface
+        bring-up, ``service frr start``, and optionally StrongSwan before
+        replacing itself with sshd via ``exec /usr/sbin/sshd -D``.  Once
+        PID 1 is ``sshd``, all init-time work is guaranteed complete.
+
+        After a ``docker restart``, watchfrr may need up to ~60 s to clean
+        up stale FRR state from the killed previous instance before the new
+        daemons start, so the default timeout is generous.
+        """
+        elapsed = 0
+        interval_s = 3
+        while elapsed < timeout_s:
+            out = self._console.execute_command(
+                "cat /proc/1/comm 2>/dev/null || echo UNKNOWN"
+            )
+            if "sshd" in out:
+                _LOGGER.info(
+                    "Init script completed on %s (PID 1 = sshd, %ds)",
+                    self.device_name, elapsed,
+                )
+                return
+            pid1 = out.strip().splitlines()[-1] if out.strip() else "?"
+            _LOGGER.debug(
+                "%s waiting for init script (PID 1 = %s, %ds/%ds)",
+                self.device_name, pid1, elapsed, timeout_s,
+            )
+            sleep(interval_s)
+            elapsed += interval_s
+        raise DeviceBootFailure(
+            f"Init script did not complete on {self.device_name} within "
+            f"{timeout_s}s (PID 1 is not sshd)"
+        )
+
     def _wait_for_interfaces(self, timeout_s: int = 60) -> None:
         """Wait until eth-lan, eth-wan1, eth-wan2 are present via ip -o link show."""
         required = {self._lan_interface} | set(self._wan_interfaces.values())
@@ -586,54 +626,44 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
     def _wait_for_frr(self, timeout_s: int = 45) -> None:
         """Wait for FRR control plane, then install and verify default routes.
 
-        Three preconditions are polled until satisfied:
+        Preconditions are polled every ``_FRR_POLL_INTERVAL_S`` seconds until
+        **all** are satisfied simultaneously (no latching — every condition is
+        re-checked each cycle so transient daemon restarts are detected):
 
         1. **Connected routes** — ``ip route show`` lists at least one route
            per WAN interface (confirms Raikou interfaces have IPs).
-        2. **FRR control plane** — ``vtysh -c "show version"`` succeeds
-           (confirms FRR daemons are ready for PBR policy commands).
+        2. **FRR control plane** — ``vtysh -c "show ip route connected"``
+           succeeds and lists connected routes (exercises zebra's RIB, not
+           just the vtysh socket).
         3. **mgmtd** — ``pgrep -x mgmtd`` succeeds.  FRR 10.x routes
            static-route configuration through mgmtd; without it, ``ip route``
-           commands via vtysh silently fail with "mgmtd is not running".
+           commands via vtysh silently fail.
+        4. **staticd** — ``pgrep -x staticd`` succeeds.  Static routes are
+           owned by staticd; if it is still starting, route commands are
+           silently dropped.
 
-        Once all three are met, default routes are installed via
-        :meth:`_install_default_routes` using the wan_gateways and wan_metrics
-        from the boardfarm inventory config, and a final verification confirms
-        the ``default`` entry is present in the kernel routing table.
+        Once all four are met, default routes are installed via
+        :meth:`_install_default_routes`.  Installation is retried up to
+        ``_FRR_ROUTE_INSTALL_RETRIES`` times with a pause between attempts to
+        tolerate the brief window where mgmtd→staticd→zebra forwarding is not
+        yet fully wired.
         """
         wan_devs = set(self._wan_interfaces.values())
         elapsed = 0
-        interval_s = 2
-        routes_ok = False
-        vtysh_ok = False
-        mgmtd_ok = False
+        interval_s = _FRR_POLL_INTERVAL_S
         while elapsed < timeout_s:
-            if not routes_ok:
-                route_out = self._console.execute_command("ip route show 2>/dev/null || true")
-                routes_ok = all(f"dev {dev}" in route_out for dev in wan_devs)
+            routes_ok = self._check_kernel_routes(wan_devs)
+            vtysh_ok = self._check_vtysh_rib()
+            mgmtd_ok = self._check_daemon("mgmtd")
+            staticd_ok = self._check_daemon("staticd")
 
-            if not vtysh_ok:
-                vtysh_out = self._console.execute_command(
-                    "vtysh -c 'show version' 2>&1 || true"
-                )
-                vtysh_ok = (
-                    "FRRouting" in vtysh_out
-                    and "Cannot connect" not in vtysh_out
-                    and "Failed to connect" not in vtysh_out
-                )
-
-            if not mgmtd_ok:
-                mgmtd_out = self._console.execute_command(
-                    "pgrep -x mgmtd >/dev/null 2>&1 && echo MGMTD_READY || echo MGMTD_MISSING"
-                )
-                mgmtd_ok = "MGMTD_READY" in mgmtd_out
-
-            if routes_ok and vtysh_ok and mgmtd_ok:
+            if routes_ok and vtysh_ok and mgmtd_ok and staticd_ok:
                 break
 
             _LOGGER.debug(
-                "%s waiting for FRR: routes_ok=%s vtysh_ok=%s mgmtd_ok=%s (elapsed=%ds)",
-                self.device_name, routes_ok, vtysh_ok, mgmtd_ok, elapsed,
+                "%s waiting for FRR: routes=%s vtysh_rib=%s mgmtd=%s staticd=%s (%ds/%ds)",
+                self.device_name, routes_ok, vtysh_ok, mgmtd_ok, staticd_ok,
+                elapsed, timeout_s,
             )
             sleep(interval_s)
             elapsed += interval_s
@@ -642,26 +672,87 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
             if not routes_ok:
                 missing.append("kernel routes on WAN interfaces")
             if not vtysh_ok:
-                missing.append("vtysh connectivity")
+                missing.append("vtysh RIB connectivity")
             if not mgmtd_ok:
                 missing.append("mgmtd daemon")
+            if not staticd_ok:
+                missing.append("staticd daemon")
             raise DeviceBootFailure(
                 f"FRR not ready on {self.device_name} within {timeout_s}s: "
                 f"{' and '.join(missing)} not available"
             )
 
-        self._install_default_routes()
-
-        route_out = self._console.execute_command("ip route show 2>/dev/null || true")
-        if "default" not in route_out:
-            raise DeviceBootFailure(
-                f"Default routes failed to install on {self.device_name}. "
-                f"Route table after install:\n{route_out}"
-            )
+        self._install_default_routes_with_retry()
         _LOGGER.info(
             "FRR ready on %s (connected routes: %s, default routes: installed, vtysh: OK)",
             self.device_name,
             sorted(wan_devs),
+        )
+
+    # -- FRR readiness helpers ------------------------------------------------
+
+    def _check_kernel_routes(self, wan_devs: set[str]) -> bool:
+        """Return True if every WAN interface has at least one kernel route."""
+        route_out = self._console.execute_command("ip route show 2>/dev/null || true")
+        return all(f"dev {dev}" in route_out for dev in wan_devs)
+
+    def _check_vtysh_rib(self) -> bool:
+        """Return True if vtysh can query zebra's RIB and it contains connected routes.
+
+        This is stronger than ``show version`` — it exercises the zebra daemon's
+        routing table, confirming zebra is alive and has populated the RIB.
+        """
+        out = self._console.execute_command(
+            "vtysh -c 'show ip route connected' 2>&1 || true"
+        )
+        return (
+            "directly connected" in out
+            and "Cannot connect" not in out
+            and "Failed to connect" not in out
+        )
+
+    def _check_daemon(self, name: str) -> bool:
+        """Return True if the named FRR daemon process is running.
+
+        Uses unique marker strings (``DAEMON_UP`` / ``DAEMON_DOWN``) to avoid
+        false matches against the command echo in the pexpect output buffer.
+        """
+        marker = f"{name.upper()}_DAEMON_UP"
+        out = self._console.execute_command(
+            f"pgrep -x {name} >/dev/null 2>&1 && echo {marker} || echo {name.upper()}_DAEMON_DOWN"
+        )
+        return marker in out
+
+    def _install_default_routes_with_retry(self) -> None:
+        """Install default routes, retrying if they don't appear in the kernel.
+
+        FRR 10.x routes ``ip route`` commands through mgmtd → staticd → zebra.
+        Even after all daemons report ready, there is a brief window during
+        which the internal forwarding path may not yet be wired.  Retrying
+        closes this gap.
+        """
+        for attempt in range(1, _FRR_ROUTE_INSTALL_RETRIES + 1):
+            self._install_default_routes()
+            sleep(_FRR_ROUTE_VERIFY_DELAY_S)
+            route_out = self._console.execute_command("ip route show 2>/dev/null || true")
+            if "default" in route_out:
+                if attempt > 1:
+                    _LOGGER.info(
+                        "%s: default routes installed on attempt %d/%d",
+                        self.device_name, attempt, _FRR_ROUTE_INSTALL_RETRIES,
+                    )
+                return
+            _LOGGER.warning(
+                "%s: default routes not in kernel after attempt %d/%d, "
+                "retrying in %ds...\nRoute table: %s",
+                self.device_name, attempt, _FRR_ROUTE_INSTALL_RETRIES,
+                _FRR_ROUTE_VERIFY_DELAY_S, route_out.strip(),
+            )
+
+        raise DeviceBootFailure(
+            f"Default routes failed to install on {self.device_name} after "
+            f"{_FRR_ROUTE_INSTALL_RETRIES} attempts. "
+            f"Route table after last install:\n{route_out}"
         )
 
     def get_telemetry(self, via: str = "nbi") -> dict:
@@ -1136,6 +1227,7 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
             )
             self.power_cycle()
             self._wait_for_interfaces()
+            self._wait_for_init_complete()
             self._wait_for_frr()
             self._start_sla_from_env(device_manager)
         else:
@@ -1159,6 +1251,7 @@ class LinuxSDWANRouter(LinuxDevice, WANEdgeDevice):
             )
             self.power_cycle()
             self._wait_for_interfaces()
+            self._wait_for_init_complete()
             self._wait_for_frr()
             self._start_sla_from_env(device_manager)
         else:
