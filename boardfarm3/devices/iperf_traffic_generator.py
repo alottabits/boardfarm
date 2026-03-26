@@ -75,23 +75,17 @@ class IperfTrafficGenerator(LinuxDevice, TrafficGenerator):
     def __init__(self, config: dict, cmdline_args: Namespace) -> None:
         """Initialize iPerf3 Traffic Generator.
 
-        :param config: Merged device config (inventory + env_def).  Must include
-            ``simulated_ip`` -- the container's IP on the simulated network.
+        :param config: Merged device config (inventory + env_def).
         :param cmdline_args: Boardfarm CLI arguments.
-        :raises KeyError: if ``simulated_ip`` is absent in *config*.
         """
         super().__init__(config, cmdline_args)
-        if "simulated_ip" not in config:
-            raise KeyError(
-                f"Device {self.device_name!r} ({self.device_type!r}): "
-                "'simulated_ip' is required. "
-                "Set it in the Boardfarm inventory JSON to the IP address "
-                "of the container on the simulated network, "
-                'e.g.: "simulated_ip": "192.168.10.20"'
-            )
-        self._simulated_ip: str = config["simulated_ip"]
         self._flows: dict[str, dict] = {}
         self._flow_counter: int = 0
+
+    @property
+    def _simulated_ip(self) -> str:
+        """Container's IP on the simulated network (from device config)."""
+        return self._config["simulated_ip"]
 
     # ------------------------------------------------------------------
     # TrafficGenerator interface
@@ -139,10 +133,11 @@ class IperfTrafficGenerator(LinuxDevice, TrafficGenerator):
         :raises KeyError: if *flow_id* is not in the active flows set.
         """
         if flow_id not in self._flows:
-            raise KeyError(
+            msg = (
                 f"Flow {flow_id!r} not found on {self.device_name!r}. "
                 f"Active flows: {list(self._flows)}"
             )
+            raise KeyError(msg)
         flow = self._flows.pop(flow_id)
 
         _LOGGER.info("%s: stopping flow %s", self.device_name, flow_id)
@@ -203,6 +198,7 @@ class IperfTrafficGenerator(LinuxDevice, TrafficGenerator):
     def boardfarm_skip_boot(self) -> None:
         """Connect and verify iPerf3 server pool is running (skip-boot path)."""
         _LOGGER.info("Initializing %s (%s)", self.device_name, self.device_type)
+        self._validate_config()
         self._connect()
         self._ensure_server_pool()
 
@@ -210,6 +206,7 @@ class IperfTrafficGenerator(LinuxDevice, TrafficGenerator):
     async def boardfarm_skip_boot_async(self) -> None:
         """Connect and verify iPerf3 server pool -- async variant."""
         _LOGGER.info("Initializing %s (%s)", self.device_name, self.device_type)
+        self._validate_config()
         await self._connect_async()
         self._ensure_server_pool()
 
@@ -217,6 +214,7 @@ class IperfTrafficGenerator(LinuxDevice, TrafficGenerator):
     def boardfarm_device_boot(self, device_manager: object) -> None:  # pylint: disable=unused-argument
         """Connect and start iPerf3 server pool (full-boot path)."""
         _LOGGER.info("Booting %s (%s)", self.device_name, self.device_type)
+        self._validate_config()
         self._connect()
         self._ensure_server_pool()
 
@@ -224,6 +222,7 @@ class IperfTrafficGenerator(LinuxDevice, TrafficGenerator):
     async def boardfarm_device_boot_async(self, device_manager: object) -> None:  # pylint: disable=unused-argument
         """Connect and start iPerf3 server pool -- async variant."""
         _LOGGER.info("Booting %s (%s)", self.device_name, self.device_type)
+        self._validate_config()
         await self._connect_async()
         self._ensure_server_pool()
 
@@ -238,6 +237,21 @@ class IperfTrafficGenerator(LinuxDevice, TrafficGenerator):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _validate_config(self) -> None:
+        """Verify required config keys are present before boot.
+
+        :raises KeyError: if ``simulated_ip`` is absent in device config.
+        """
+        if "simulated_ip" not in self._config:
+            msg = (
+                f"Device {self.device_name!r} ({self.device_type!r}): "
+                "'simulated_ip' is required. "
+                "Set it in the Boardfarm inventory JSON to the IP address "
+                "of the container on the simulated network, "
+                'e.g.: "simulated_ip": "192.168.10.20"'
+            )
+            raise KeyError(msg)
 
     def _ensure_server_pool(self) -> None:
         """Start iPerf3 server daemons on ports 5201-5210 if not already running."""
@@ -269,10 +283,11 @@ class IperfTrafficGenerator(LinuxDevice, TrafficGenerator):
         for port in _SERVER_PORTS:
             if port not in used:
                 return port
-        raise RuntimeError(
+        msg = (
             f"All {len(_SERVER_PORTS)} server ports to {destination} are in use on "
             f"{self.device_name!r}. Stop some flows first."
         )
+        raise RuntimeError(msg)
 
     @staticmethod
     def _build_iperf3_cmd(

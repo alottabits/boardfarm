@@ -16,13 +16,13 @@ asynchronous start/stop model.  It does **not** replace the legacy
 A single TrafficGenerator instance can run multiple concurrent outbound flows, each
 identified by a ``flow_id`` returned from :meth:`TrafficGenerator.start_traffic`.  This
 enables one-to-many (single source, multiple destinations) and many-to-many patterns
-without extra container instances.
+without extra device instances.
 
 **Dual-role (client + server):**
 
-Each instance also runs an iPerf3 server pool at boot, so it can act as both a traffic
-source (client) and a traffic sink (server).  The :attr:`TrafficGenerator.server_ip`
-property exposes the address other generators should target.
+Each instance acts as both a traffic source (client) and a traffic sink (server).
+The :attr:`TrafficGenerator.server_ip` property exposes the address other generators
+should target.
 
 See: ``docs/examples/sdwan-digital-twin/future/traffic-generator.md``
 """
@@ -46,7 +46,7 @@ class TrafficSpec:
     :param duration_s: Flow duration in seconds.  Used by
         :meth:`~TrafficGenerator.run_traffic` (blocking) and as a safety timeout for
         :meth:`~TrafficGenerator.start_traffic` (non-blocking).
-    :param parallel_streams: Number of parallel streams within this flow (iPerf3 ``-P``).
+    :param parallel_streams: Number of parallel streams within this flow.
     :param port: Target server port.  When ``None``, the implementation auto-allocates
         from the server pool.
     """
@@ -83,10 +83,6 @@ class TrafficGenerator(ABC):
 
     Supports multiple concurrent flows per device instance, enabling
     one-to-many and many-to-many traffic patterns from a single generator.
-
-    Implementations (e.g.
-    :class:`~boardfarm3.devices.iperf_traffic_generator.IperfTrafficGenerator`)
-    connect via SSH and use iPerf3 CLI commands.
 
     **Async model:** :meth:`start_traffic` is non-blocking and returns a ``flow_id``.
     The typical test pattern is::
