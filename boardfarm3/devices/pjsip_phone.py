@@ -2,7 +2,9 @@
 
 """PJSIPPhone device module."""
 
+import asyncio
 import logging
+import time
 from argparse import Namespace
 from contextlib import suppress
 from ipaddress import IPv4Interface, IPv6Interface
@@ -125,7 +127,7 @@ class PJSIPPhone(LinuxDevice, SIPPhoneTemplate):
         options = self._parse_device_suboptions()
         if "lan-ip-dhcp" in options:
             self._console.execute_command(f"ip -4 addr flush dev {self._iface_dut}")
-            self._console.execute_command("dhclient")
+            self._wait_for_dhcp()
         if ipv6_address := options.get("wan-static-ipv6"):
             ipv6_interface = IPv6Interface(ipv6_address)
             # we are bypassing this for now
@@ -161,7 +163,7 @@ class PJSIPPhone(LinuxDevice, SIPPhoneTemplate):
             await self._console.execute_command_async(
                 f"ip -4 addr flush dev {self._iface_dut}"
             )
-            await self._console.execute_command_async("dhclient")
+            await self._wait_for_dhcp_async()
         if ipv6_address := options.get("wan-static-ipv6"):
             ipv6_interface = IPv6Interface(ipv6_address)
             # we are bypassing this for now
@@ -184,6 +186,98 @@ class PJSIPPhone(LinuxDevice, SIPPhoneTemplate):
                 f"ip -4 addr add {ipv4_interface} dev {self._iface_dut}"
             )
         await self._setup_static_routes_async()
+
+    _DHCP_POLL_INTERVAL = 3
+    _DHCP_POLL_COUNT = 7
+    _DHCP_MAX_ATTEMPTS = 6
+
+    def _wait_for_dhcp(self) -> None:
+        """Run dhclient in a retry loop until a lease is obtained.
+
+        ISC dhclient forks to background by default; the actual DHCP exchange
+        happens in the child process.  We launch it with ``-1`` (try once) and
+        then poll for an IPv4 address to appear on the interface.
+
+        The CPE's LAN-side DHCP server may not be ready immediately after a
+        reboot, so multiple attempts are made with fresh dhclient invocations.
+        """
+        for attempt in range(1, self._DHCP_MAX_ATTEMPTS + 1):
+            self._console.execute_command(
+                "pkill -x dhclient 2>/dev/null || true"
+            )
+            self._console.execute_command(
+                f"ip -4 addr flush dev {self._iface_dut}"
+            )
+            self._console.execute_command(
+                f"dhclient -1 {self._iface_dut} 2>&1 || true"
+            )
+            for poll in range(1, self._DHCP_POLL_COUNT + 1):
+                time.sleep(self._DHCP_POLL_INTERVAL)
+                output = self._console.execute_command(
+                    f"ip -4 addr show dev {self._iface_dut}"
+                )
+                if "inet " in output:
+                    _LOGGER.info(
+                        "DHCP lease on %s (attempt %d, after %ds)",
+                        self._iface_dut, attempt,
+                        poll * self._DHCP_POLL_INTERVAL,
+                    )
+                    return
+            _LOGGER.warning(
+                "DHCP attempt %d/%d on %s — no lease after %ds",
+                attempt, self._DHCP_MAX_ATTEMPTS, self._iface_dut,
+                self._DHCP_POLL_COUNT * self._DHCP_POLL_INTERVAL,
+            )
+        total = (
+            self._DHCP_MAX_ATTEMPTS
+            * self._DHCP_POLL_COUNT
+            * self._DHCP_POLL_INTERVAL
+        )
+        msg = (
+            f"Failed to obtain DHCP lease on {self._iface_dut} "
+            f"after {self._DHCP_MAX_ATTEMPTS} attempts (~{total}s)"
+        )
+        raise RuntimeError(msg)
+
+    async def _wait_for_dhcp_async(self) -> None:
+        """Async variant of :meth:`_wait_for_dhcp`."""
+        for attempt in range(1, self._DHCP_MAX_ATTEMPTS + 1):
+            await self._console.execute_command_async(
+                "pkill -x dhclient 2>/dev/null || true"
+            )
+            await self._console.execute_command_async(
+                f"ip -4 addr flush dev {self._iface_dut}"
+            )
+            await self._console.execute_command_async(
+                f"dhclient -1 {self._iface_dut} 2>&1 || true"
+            )
+            for poll in range(1, self._DHCP_POLL_COUNT + 1):
+                await asyncio.sleep(self._DHCP_POLL_INTERVAL)
+                output = await self._console.execute_command_async(
+                    f"ip -4 addr show dev {self._iface_dut}"
+                )
+                if "inet " in output:
+                    _LOGGER.info(
+                        "DHCP lease on %s (attempt %d, after %ds)",
+                        self._iface_dut, attempt,
+                        poll * self._DHCP_POLL_INTERVAL,
+                    )
+                    return
+            _LOGGER.warning(
+                "DHCP attempt %d/%d on %s — no lease after %ds",
+                attempt, self._DHCP_MAX_ATTEMPTS, self._iface_dut,
+                self._DHCP_POLL_COUNT * self._DHCP_POLL_INTERVAL,
+            )
+        total = (
+            self._DHCP_MAX_ATTEMPTS
+            * self._DHCP_POLL_COUNT
+            * self._DHCP_POLL_INTERVAL
+        )
+        msg = (
+            f"Failed to obtain DHCP lease on {self._iface_dut} "
+            f"after {self._DHCP_MAX_ATTEMPTS} attempts (~{total}s)"
+        )
+        raise RuntimeError(msg)
 
     @hookimpl
     def boardfarm_attached_device_boot(self) -> None:
