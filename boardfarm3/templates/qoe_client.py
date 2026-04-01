@@ -34,7 +34,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from boardfarm3.lib.qoe import QoEResult
+    from boardfarm3.lib.qoe import MeasurementSpec, QoEResult
 
 
 class QoEClient(ABC):
@@ -73,16 +73,95 @@ class QoEClient(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def measure(
+        self,
+        url: str,
+        spec: "MeasurementSpec",
+    ) -> "QoEResult":
+        """Perform a QoE measurement using the specified tool and completion criteria.
+
+        This is the core measurement method.  Concrete implementations dispatch
+        on ``spec.tool`` to select the measurement engine (browser, http_client,
+        webrtc, tcp_probe) and use ``spec.completion`` to determine when the
+        measurement is done.
+
+        The named convenience methods (:meth:`measure_productivity`,
+        :meth:`measure_streaming`, etc.) construct a default
+        :class:`~boardfarm3.lib.qoe.MeasurementSpec` and delegate here.
+
+        :param url: Target URL or endpoint.
+        :param spec: :class:`~boardfarm3.lib.qoe.MeasurementSpec` describing the
+            measurement tool, completion event, timeout, and optional duration.
+        :return: :class:`~boardfarm3.lib.qoe.QoEResult` with fields populated
+            according to the measurement type.
+        """
+        raise NotImplementedError
+
+    def measure_http_timing(
+        self,
+        url: str,
+        *,
+        spec: "MeasurementSpec | None" = None,
+        timeout_s: float = 30.0,
+    ) -> "QoEResult":
+        """Lightweight HTTP timing measurement (no browser).
+
+        Measures TTFB and total response time for a single HTTP request using
+        ``urllib``.  No Playwright / Chromium overhead — suitable for
+        page-load SLO probes under impaired WAN conditions.
+
+        Populated fields in the returned :class:`~boardfarm3.lib.qoe.QoEResult`:
+
+        - :attr:`~boardfarm3.lib.qoe.QoEResult.ttfb_ms`
+        - :attr:`~boardfarm3.lib.qoe.QoEResult.load_time_ms`
+        - :attr:`~boardfarm3.lib.qoe.QoEResult.success`
+
+        :param url: Target URL.
+        :param spec: Optional :class:`~boardfarm3.lib.qoe.MeasurementSpec`.
+            When ``None``, a default spec with ``tool='http_client'``,
+            ``completion='response'`` is constructed.
+        :param timeout_s: Request timeout (seconds, default 30.0).  Ignored
+            when *spec* is provided (uses ``spec.timeout_ms``).
+        :return: :class:`~boardfarm3.lib.qoe.QoEResult` with timing fields.
+        """
+        from boardfarm3.lib.qoe import MeasurementSpec as _MS
+
+        if spec is None:
+            spec = _MS(
+                tool="http_client",
+                completion="response",
+                timeout_ms=int(timeout_s * 1000),
+            )
+        return self.measure(url, spec)
+
+    @abstractmethod
     def measure_productivity(
         self,
         url: str,
         *,
+        spec: "MeasurementSpec | None" = None,
         scenario: str = "page_load",
+        wait_until: str = "networkidle",
+        timeout_ms: int = 30000,
     ) -> "QoEResult":
         """Measure TTFB and page-load time for a productivity web application.
 
         Launches a headless Chromium browser, navigates to *url*, waits for the
-        ``"networkidle"`` event, and extracts Navigation Timing API metrics.
+        specified browser lifecycle event, and extracts Navigation Timing API
+        metrics.
+
+        **Wait strategies** (select based on what the use case measures):
+
+        - ``"networkidle"`` — wait until no network connections for 500 ms.
+          Use for session-continuity tests where all assets must be loaded
+          (e.g. failover scenarios that re-measure after path switch).
+        - ``"load"`` — wait for the browser ``load`` event
+          (``loadEventEnd`` in Navigation Timing).  Use for page-load SLO
+          tests that measure TTFB and total load time under varying WAN
+          conditions.  More resilient to slow sub-resource loading.
+        - ``"domcontentloaded"`` — wait for ``DOMContentLoaded`` only.
+          Use when measuring perceived interactivity (DOM ready), not full
+          page load.
 
         Populated fields in the returned :class:`~boardfarm3.lib.qoe.QoEResult`:
 
@@ -95,6 +174,12 @@ class QoEClient(ABC):
         :param url: Target URL (e.g. ``"http://productivity.internal/"``).
         :param scenario: Scenario label for logging; does not affect measurement (default
             ``"page_load"``).  Future values: ``"login_flow"``, ``"file_download"``.
+        :param wait_until: Browser lifecycle event to wait for before extracting
+            Navigation Timing metrics.  One of ``"networkidle"``, ``"load"``,
+            ``"domcontentloaded"`` (default ``"networkidle"``).
+        :param timeout_ms: Maximum time to wait for the page to reach the
+            *wait_until* event (milliseconds).  Set to at least the expected
+            SLO load time + buffer for impaired conditions (default 30000).
         :return: :class:`~boardfarm3.lib.qoe.QoEResult` with productivity fields populated.
         """
         raise NotImplementedError
@@ -104,6 +189,7 @@ class QoEClient(ABC):
         self,
         stream_url: str,
         *,
+        spec: "MeasurementSpec | None" = None,
         duration_s: int = 30,
     ) -> "QoEResult":
         """Measure video startup time and rebuffer ratio for an HLS stream.
@@ -133,6 +219,7 @@ class QoEClient(ABC):
         self,
         session_url: str,
         *,
+        spec: "MeasurementSpec | None" = None,
         duration_s: int = 60,
     ) -> "QoEResult":
         """Measure RTT, jitter, packet-loss, and MOS for a WebRTC conferencing session.

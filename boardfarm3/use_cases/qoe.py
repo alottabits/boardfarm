@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from boardfarm3.exceptions import DeviceNotFound
 from boardfarm3.lib.device_manager import get_device_manager
-from boardfarm3.lib.qoe import QoEResult
+from boardfarm3.lib.qoe import MeasurementSpec, QoEResult, spec_from_dict
 from boardfarm3.templates.qoe_client import QoEClient
 
 
@@ -94,13 +94,46 @@ def get_qoe_client(name: str | None = None) -> QoEClient:
 # ---------------------------------------------------------------------------
 
 
+def measure(
+    client: QoEClient,
+    url: str,
+    spec: MeasurementSpec | dict,
+) -> QoEResult:
+    """Perform a QoE measurement using a :class:`~boardfarm3.lib.qoe.MeasurementSpec`.
+
+    This is the general-purpose entry point.  The spec describes which tool
+    and completion criteria to use; the client dispatches accordingly.
+
+    .. hint:: This Use Case implements statements from the test suite such as:
+
+        - ``When the remote worker loads the productivity page through the appliance``
+        - ``When the LAN client measures HTTP timing for "<url>"``
+
+    :param client: Target QoEClient device.
+    :param url: Target URL or endpoint.
+    :param spec: :class:`~boardfarm3.lib.qoe.MeasurementSpec` or dict
+        (auto-converted via :func:`~boardfarm3.lib.qoe.spec_from_dict`).
+    :return: :class:`~boardfarm3.lib.qoe.QoEResult`.
+    """
+    if isinstance(spec, dict):
+        spec = spec_from_dict(spec)
+    return client.measure(url, spec)
+
+
 def measure_productivity(
     client: QoEClient,
     url: str,
     *,
+    spec: MeasurementSpec | dict | None = None,
     scenario: str = "page_load",
+    wait_until: str = "networkidle",
+    timeout_ms: int = 30000,
 ) -> QoEResult:
     """Measure TTFB and page-load time for a productivity URL via *client*.
+
+    When *spec* is provided, it takes precedence over the individual keyword
+    arguments.  When *spec* is ``None``, the kwargs are used to construct a
+    default browser spec (backward compatible).
 
     .. hint:: This Use Case implements statements from the test suite such as:
 
@@ -110,16 +143,53 @@ def measure_productivity(
 
     :param client: Target QoEClient device.
     :param url: Target URL (e.g. ``"http://productivity.internal/"``).
+    :param spec: Optional :class:`~boardfarm3.lib.qoe.MeasurementSpec` or dict.
     :param scenario: Scenario label for logging (default ``"page_load"``).
+    :param wait_until: Browser completion event (default ``"networkidle"``).
+        Ignored when *spec* is provided.
+    :param timeout_ms: Navigation timeout (ms, default 30000).
+        Ignored when *spec* is provided.
     :return: :class:`~boardfarm3.lib.qoe.QoEResult` with productivity fields populated.
     """
-    return client.measure_productivity(url, scenario=scenario)
+    if isinstance(spec, dict):
+        spec = spec_from_dict(spec)
+    if spec is not None:
+        return client.measure(url, spec)
+    return client.measure_productivity(
+        url, scenario=scenario, wait_until=wait_until, timeout_ms=timeout_ms,
+    )
+
+
+def measure_http_timing(
+    client: QoEClient,
+    url: str,
+    *,
+    spec: MeasurementSpec | dict | None = None,
+    timeout_s: float = 30.0,
+) -> QoEResult:
+    """Lightweight HTTP timing measurement (no browser).
+
+    .. hint:: This Use Case implements statements from the test suite such as:
+
+        - ``When the LAN client probes HTTP timing for "<url>"``
+
+    :param client: Target QoEClient device.
+    :param url: Target URL.
+    :param spec: Optional :class:`~boardfarm3.lib.qoe.MeasurementSpec` or dict.
+    :param timeout_s: Request timeout (seconds, default 30.0).
+        Ignored when *spec* is provided.
+    :return: :class:`~boardfarm3.lib.qoe.QoEResult` with timing fields populated.
+    """
+    if isinstance(spec, dict):
+        spec = spec_from_dict(spec)
+    return client.measure_http_timing(url, spec=spec, timeout_s=timeout_s)
 
 
 def measure_streaming(
     client: QoEClient,
     stream_url: str,
     *,
+    spec: MeasurementSpec | dict | None = None,
     duration_s: int = 30,
 ) -> QoEResult:
     """Measure video startup time and rebuffer ratio for an HLS stream via *client*.
@@ -136,6 +206,10 @@ def measure_streaming(
     :param duration_s: Simulated playback duration in seconds (default 30).
     :return: :class:`~boardfarm3.lib.qoe.QoEResult` with streaming fields populated.
     """
+    if isinstance(spec, dict):
+        spec = spec_from_dict(spec)
+    if spec is not None:
+        return client.measure(stream_url, spec)
     return client.measure_streaming(stream_url, duration_s=duration_s)
 
 
@@ -143,6 +217,7 @@ def measure_conferencing(
     client: QoEClient,
     session_url: str,
     *,
+    spec: MeasurementSpec | dict | None = None,
     duration_s: int = 60,
 ) -> QoEResult:
     """Measure WebRTC RTT, jitter, packet-loss, and MOS via *client*.
@@ -159,6 +234,10 @@ def measure_conferencing(
     :param duration_s: Session duration for stat accumulation (default 60).
     :return: :class:`~boardfarm3.lib.qoe.QoEResult` with conferencing fields populated.
     """
+    if isinstance(spec, dict):
+        spec = spec_from_dict(spec)
+    if spec is not None:
+        return client.measure(session_url, spec)
     return client.measure_conferencing(session_url, duration_s=duration_s)
 
 

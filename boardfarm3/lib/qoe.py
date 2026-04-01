@@ -109,6 +109,122 @@ class QoEResult:
 
 
 # ---------------------------------------------------------------------------
+# Measurement specification — portable description of HOW to measure
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MeasurementSpec:
+    """Describes how a QoE measurement should be conducted.
+
+    Separates two orthogonal concerns:
+
+    - **tool** — which measurement engine to use.
+    - **completion** — what event signals the measurement is complete.
+
+    The same tool + completion combination can measure different things depending
+    on the target URL and which :class:`QoEResult` fields are asserted.  This
+    follows the :class:`~boardfarm3.lib.traffic_control.ImpairmentProfile` pattern:
+    a single portable dataclass that the template accepts and the concrete device
+    implementation translates to engine-specific operations.
+
+    **Tool × Completion matrix:**
+
+    ================  ===============================================
+    Tool              Valid completion events
+    ================  ===============================================
+    ``browser``       ``networkidle``, ``load``, ``domcontentloaded``
+    ``http_client``   ``response``, ``duration``
+    ``webrtc``        ``duration``
+    ``tcp_probe``     ``connect``
+    ================  ===============================================
+    """
+
+    tool: str = "browser"
+    """Measurement engine:
+
+    - ``'browser'`` — Playwright / Chromium (full page navigation, JS execution).
+    - ``'http_client'`` — urllib (lightweight HTTP request / response timing).
+    - ``'webrtc'`` — WebRTC peer-connection session via Playwright.
+    - ``'tcp_probe'`` — TCP socket connection attempt.
+    """
+
+    completion: str = "networkidle"
+    """When the measurement is considered complete:
+
+    - ``'networkidle'`` — no network connections for 500 ms (browser).
+    - ``'load'`` — browser ``load`` event (``loadEventEnd`` in Navigation Timing).
+    - ``'domcontentloaded'`` — DOM content loaded event (browser).
+    - ``'response'`` — HTTP response fully received (http_client).
+    - ``'duration'`` — run for :attr:`duration_s` seconds (webrtc, streaming).
+    - ``'connect'`` — TCP handshake completed or refused (tcp_probe).
+    """
+
+    timeout_ms: int = 30000
+    """Maximum time to wait for the completion event (milliseconds)."""
+
+    duration_s: int | None = None
+    """Session length for duration-based completion (seconds).
+
+    Required when ``completion='duration'``.  Ignored for other completion types.
+    """
+
+
+# --- Validation ---
+
+VALID_TOOLS: set[str] = {"browser", "http_client", "webrtc", "tcp_probe"}
+
+VALID_COMPLETIONS: dict[str, set[str]] = {
+    "browser": {"networkidle", "load", "domcontentloaded"},
+    "http_client": {"response", "duration"},
+    "webrtc": {"duration"},
+    "tcp_probe": {"connect"},
+}
+
+
+def validate_spec(spec: MeasurementSpec) -> None:
+    """Raise :exc:`ValueError` if *spec* has an invalid tool + completion combination.
+
+    Also checks that ``duration_s`` is provided when ``completion='duration'``.
+    """
+    if spec.tool not in VALID_TOOLS:
+        raise ValueError(
+            f"Unknown measurement tool {spec.tool!r}. "
+            f"Expected one of: {sorted(VALID_TOOLS)}"
+        )
+    valid = VALID_COMPLETIONS[spec.tool]
+    if spec.completion not in valid:
+        raise ValueError(
+            f"Completion {spec.completion!r} is not valid for tool {spec.tool!r}. "
+            f"Expected one of: {sorted(valid)}"
+        )
+    if spec.completion == "duration" and spec.duration_s is None:
+        raise ValueError(
+            "duration_s is required when completion='duration'"
+        )
+
+
+def spec_from_dict(data: dict) -> MeasurementSpec:
+    """Parse a plain dict to a :class:`MeasurementSpec`.
+
+    Accepts any subset of :class:`MeasurementSpec` fields.  Unknown keys are
+    silently ignored for forward compatibility (e.g., env-config may carry
+    metadata fields).  Validates the resulting spec.
+
+    :param data: Dict from env JSON preset or test code.
+    :return: Validated :class:`MeasurementSpec`.
+    :raises ValueError: if the tool + completion combination is invalid.
+    """
+    import dataclasses as _dc
+
+    valid_keys = {f.name for f in _dc.fields(MeasurementSpec)}
+    filtered = {k: v for k, v in data.items() if k in valid_keys}
+    spec = MeasurementSpec(**filtered)
+    validate_spec(spec)
+    return spec
+
+
+# ---------------------------------------------------------------------------
 # MOS calculation — ITU-T G.107 E-model (simplified for IP networks)
 # ---------------------------------------------------------------------------
 

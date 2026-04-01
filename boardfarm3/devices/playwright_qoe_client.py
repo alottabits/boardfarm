@@ -54,7 +54,7 @@ from argparse import Namespace
 
 from boardfarm3 import hookimpl
 from boardfarm3.devices.base_devices.linux_device import LinuxDevice
-from boardfarm3.lib.qoe import QoEResult, calculate_mos
+from boardfarm3.lib.qoe import MeasurementSpec, QoEResult, calculate_mos, validate_spec
 from boardfarm3.templates.qoe_client import QoEClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,6 +70,8 @@ _PRODUCTIVITY_SCRIPT = textwrap.dedent("""
     from urllib.parse import urlparse
 
     URL = {url_repr}
+    WAIT_UNTIL = {wait_until_repr}
+    TIMEOUT_MS = {timeout_ms}
 
     async def main():
         from playwright.async_api import async_playwright
@@ -91,7 +93,7 @@ _PRODUCTIVITY_SCRIPT = textwrap.dedent("""
             )
             page = await browser.new_page()
             try:
-                response = await page.goto(URL, wait_until="networkidle", timeout=30000)
+                response = await page.goto(URL, wait_until=WAIT_UNTIL, timeout=TIMEOUT_MS)
                 status = response.status if response else 0
                 timing = await page.evaluate(
                     \"\"\"() => {
@@ -359,6 +361,36 @@ _OUTBOUND_CONN_SCRIPT = textwrap.dedent("""
         print(json.dumps({"connected": False, "error": str(exc)}))
 """).strip()
 
+_HTTP_TIMING_SCRIPT = textwrap.dedent("""
+    import json
+    import time
+    import urllib.request
+
+    URL = {url_repr}
+    TIMEOUT = {timeout_s}
+
+    try:
+        t0 = time.monotonic()
+        req = urllib.request.Request(URL)
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            first_byte = time.monotonic()
+            resp.read()
+            done = time.monotonic()
+            status = resp.status
+            print(json.dumps({
+                "ttfb_ms": round((first_byte - t0) * 1000, 1),
+                "load_time_ms": round((done - t0) * 1000, 1),
+                "success": 200 <= status < 400,
+            }))
+    except Exception as exc:
+        print(json.dumps({
+            "ttfb_ms": None,
+            "load_time_ms": None,
+            "success": False,
+            "error": str(exc),
+        }))
+""").strip()
+
 
 # ---------------------------------------------------------------------------
 # JSON output parser
@@ -436,26 +468,34 @@ class PlaywrightQoEClient(LinuxDevice, QoEClient):
         return self._simulated_ip
 
     # ------------------------------------------------------------------
-    # QoEClient interface — measurement methods
+    # QoEClient interface — core measurement dispatch
     # ------------------------------------------------------------------
 
-    def measure_productivity(
-        self,
-        url: str,
-        *,
-        scenario: str = "page_load",
-    ) -> QoEResult:
-        """Measure TTFB and page-load time via Playwright Navigation Timing API.
+    def measure(self, url: str, spec: MeasurementSpec) -> QoEResult:
+        """Perform a QoE measurement by dispatching on spec.tool."""
+        validate_spec(spec)
+        if spec.tool == "browser":
+            return self._measure_browser(url, spec)
+        if spec.tool == "http_client":
+            return self._measure_http_client(url, spec)
+        if spec.tool == "webrtc":
+            return self._measure_webrtc(url, spec)
+        if spec.tool == "tcp_probe":
+            return self._measure_tcp_probe(url, spec)
+        raise ValueError(f"Unsupported tool: {spec.tool!r}")
 
-        :param url: Target URL (e.g. ``"http://productivity.internal/"``).
-        :param scenario: Scenario label for log output (default ``"page_load"``).
-        :return: :class:`~boardfarm3.lib.qoe.QoEResult` with productivity fields set.
-        """
+    def _measure_browser(self, url: str, spec: MeasurementSpec) -> QoEResult:
+        """Browser measurement via Playwright (productivity page-load)."""
         _LOGGER.info(
-            "%s: measure_productivity(url=%r, scenario=%r)",
-            self.device_name, url, scenario,
+            "%s: _measure_browser(url=%r, completion=%r, timeout_ms=%d)",
+            self.device_name, url, spec.completion, spec.timeout_ms,
         )
-        script = _PRODUCTIVITY_SCRIPT.replace("{url_repr}", repr(url))
+        script = (
+            _PRODUCTIVITY_SCRIPT
+            .replace("{url_repr}", repr(url))
+            .replace("{wait_until_repr}", repr(spec.completion))
+            .replace("{timeout_ms}", str(spec.timeout_ms))
+        )
         raw = self._run_script(script, timeout=60)
         data = _parse_json_result(raw)
         return QoEResult(
@@ -465,31 +505,38 @@ class PlaywrightQoEClient(LinuxDevice, QoEClient):
             success=bool(data.get("success", False)),
         )
 
-    def measure_streaming(
-        self,
-        stream_url: str,
-        *,
-        duration_s: int = 30,
-    ) -> QoEResult:
-        """Measure video startup time for an HLS stream via segment fetch timing.
-
-        Fetches the HLS manifest and first media segment using Python's
-        ``urllib.request``.  Returns ``rebuffer_ratio = 0.0`` in Phase 1 (live
-        rebuffer tracking requires an HLS player, added in Phase 3).
-
-        :param stream_url: HLS manifest URL
-            (e.g. ``"http://streaming.internal/live/stream.m3u8"``).
-        :param duration_s: Simulated playback duration — passed to the script for
-            future Phase 3 rebuffer measurement (default 30).
-        :return: :class:`~boardfarm3.lib.qoe.QoEResult` with streaming fields set.
-        """
+    def _measure_http_client(self, url: str, spec: MeasurementSpec) -> QoEResult:
+        """Lightweight HTTP timing via urllib (no browser)."""
+        if spec.completion == "duration":
+            return self._measure_streaming_internal(url, spec)
         _LOGGER.info(
-            "%s: measure_streaming(stream_url=%r, duration_s=%d)",
-            self.device_name, stream_url, duration_s,
+            "%s: _measure_http_client(url=%r, timeout_ms=%d)",
+            self.device_name, url, spec.timeout_ms,
+        )
+        timeout_s = spec.timeout_ms / 1000
+        script = (
+            _HTTP_TIMING_SCRIPT
+            .replace("{url_repr}", repr(url))
+            .replace("{timeout_s}", str(timeout_s))
+        )
+        raw = self._run_script(script, timeout=int(timeout_s) + 30)
+        data = _parse_json_result(raw)
+        return QoEResult(
+            ttfb_ms=data.get("ttfb_ms"),
+            load_time_ms=data.get("load_time_ms"),
+            success=bool(data.get("success", False)),
+        )
+
+    def _measure_streaming_internal(self, url: str, spec: MeasurementSpec) -> QoEResult:
+        """Streaming (HLS) measurement via urllib."""
+        duration_s = spec.duration_s or 30
+        _LOGGER.info(
+            "%s: _measure_streaming_internal(url=%r, duration_s=%d)",
+            self.device_name, url, duration_s,
         )
         script = (
             _STREAMING_SCRIPT
-            .replace("{stream_url_repr}", repr(stream_url))
+            .replace("{stream_url_repr}", repr(url))
             .replace("{duration_s}", str(duration_s))
         )
         raw = self._run_script(script, timeout=duration_s + 90)
@@ -500,57 +547,99 @@ class PlaywrightQoEClient(LinuxDevice, QoEClient):
             success=bool(data.get("success", False)),
         )
 
-    def measure_conferencing(
-        self,
-        session_url: str,
-        *,
-        duration_s: int = 60,
-    ) -> QoEResult:
-        """Measure WebRTC RTT, jitter, packet-loss, and MOS via ``getStats()``.
-
-        Launches Chromium with fake media devices, connects to the pion echo server
-        at *session_url* via a WebSocket signaling exchange, runs a
-        ``RTCPeerConnection`` session for *duration_s* seconds, and calls
-        ``getStats()`` to extract ``remote-inbound-rtp`` statistics.
-
-        MOS is calculated using :func:`~boardfarm3.lib.qoe.calculate_mos`.
-
-        :param session_url: WebRTC signaling WebSocket URL
-            (e.g. ``"ws://conf-server.internal:8080/session"``).
-        :param duration_s: Session duration for stat accumulation (default 60).
-        :return: :class:`~boardfarm3.lib.qoe.QoEResult` with conferencing fields set.
-        """
+    def _measure_webrtc(self, url: str, spec: MeasurementSpec) -> QoEResult:
+        """WebRTC conferencing measurement via Playwright."""
+        duration_s = spec.duration_s or 60
         _LOGGER.info(
-            "%s: measure_conferencing(session_url=%r, duration_s=%d)",
-            self.device_name, session_url, duration_s,
+            "%s: _measure_webrtc(url=%r, duration_s=%d)",
+            self.device_name, url, duration_s,
         )
         script = (
             _CONFERENCING_SCRIPT
-            .replace("{session_url_repr}", repr(session_url))
+            .replace("{session_url_repr}", repr(url))
             .replace("{duration_s}", str(duration_s))
         )
         raw = self._run_script(script, timeout=duration_s + 30)
         data = _parse_json_result(raw)
-
-        latency_ms = data.get("latency_ms")
-        jitter_ms = data.get("jitter_ms")
-        loss_pct = data.get("packet_loss_pct")
-
-        mos: float | None = None
-        if latency_ms is not None and jitter_ms is not None and loss_pct is not None:
-            mos = calculate_mos(
-                latency_ms=latency_ms,
-                jitter_ms=jitter_ms,
-                loss_percent=loss_pct,
-            )
-
+        latency = data.get("latency_ms")
+        jitter = data.get("jitter_ms")
+        loss = data.get("packet_loss_pct")
+        mos = None
+        if all(v is not None for v in (latency, jitter, loss)):
+            mos = calculate_mos(latency, jitter, loss)
         return QoEResult(
-            latency_ms=latency_ms,
-            jitter_ms=jitter_ms,
-            packet_loss_pct=loss_pct,
+            latency_ms=latency,
+            jitter_ms=jitter,
+            packet_loss_pct=loss,
             mos_score=mos,
             success=bool(data.get("success", False)),
         )
+
+    def _measure_tcp_probe(self, url: str, spec: MeasurementSpec) -> QoEResult:
+        """TCP connection probe — delegates to attempt_outbound_connection logic."""
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        host = parsed.hostname or url
+        port = parsed.port or 80
+        timeout_s = spec.timeout_ms / 1000
+        connected = self.attempt_outbound_connection(host, port, timeout_s=timeout_s)
+        return QoEResult(success=connected)
+
+    # ------------------------------------------------------------------
+    # QoEClient interface — convenience measurement methods
+    # ------------------------------------------------------------------
+
+    def measure_productivity(
+        self,
+        url: str,
+        *,
+        spec: MeasurementSpec | None = None,
+        scenario: str = "page_load",
+        wait_until: str = "networkidle",
+        timeout_ms: int = 30000,
+    ) -> QoEResult:
+        """Convenience wrapper — delegates to :meth:`measure` with a browser spec."""
+        if spec is None:
+            spec = MeasurementSpec(
+                tool="browser",
+                completion=wait_until,
+                timeout_ms=timeout_ms,
+            )
+        return self.measure(url, spec)
+
+    def measure_streaming(
+        self,
+        stream_url: str,
+        *,
+        spec: MeasurementSpec | None = None,
+        duration_s: int = 30,
+    ) -> QoEResult:
+        """Convenience wrapper — delegates to :meth:`measure` with an http_client spec."""
+        if spec is None:
+            spec = MeasurementSpec(
+                tool="http_client",
+                completion="duration",
+                duration_s=duration_s,
+                timeout_ms=(duration_s + 90) * 1000,
+            )
+        return self.measure(stream_url, spec)
+
+    def measure_conferencing(
+        self,
+        session_url: str,
+        *,
+        spec: MeasurementSpec | None = None,
+        duration_s: int = 60,
+    ) -> QoEResult:
+        """Convenience wrapper — delegates to :meth:`measure` with a webrtc spec."""
+        if spec is None:
+            spec = MeasurementSpec(
+                tool="webrtc",
+                completion="duration",
+                duration_s=duration_s,
+                timeout_ms=(duration_s + 30) * 1000,
+            )
+        return self.measure(session_url, spec)
 
     def attempt_outbound_connection(
         self,
